@@ -67,15 +67,15 @@ is the ATTiny13A, at $1.13 each.  (These are through-hole prices,
 surface-mount versions tend to be cheaper.)  However, I personally prefer the
 ATtiny family because:
 
-    - there exists a great open-source toolchain,
-      [avr tools](https://www.nongnu.org/avr-libc/user-manual/overview.html)
-      for the ATmel AVR family of microcontrollers
-    - a free compiler exists for PIC microcontrollers, but it is proprietary,
-      closed-source, and feature-limited (unless a license is purchased)
-    - programmers for ATmel AVR devices appear to be cheaper
-    - though not used in this project, the ATtiny MCUs can use the Arduino
-      libraries (which should speak for itself in terms of community support
-      and enthusiasm)
+- there exists a great open-source toolchain,
+  [avr tools](https://www.nongnu.org/avr-libc/user-manual/overview.html)
+  for the ATmel AVR family of microcontrollers
+- a free compiler exists for PIC microcontrollers, but it is proprietary,
+  closed-source, and feature-limited (unless a license is purchased)
+- programmers for ATmel AVR devices appear to be cheaper
+- though not used in this project, the ATtiny MCUs can use the Arduino
+  libraries (which should speak for itself in terms of community support
+  and enthusiasm)
 
 
 ## Program Concept
