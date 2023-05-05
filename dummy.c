@@ -6,6 +6,8 @@
 /*
  * dummy interface implementation - simple stubs that do nothing, except act
  * as a rudimentary test for compilation
+ * test with:
+ *    gcc -Wall -ggdb3 -Os mcu-relay-controller.c dummy.c
  */
 
 #include "mcu-relay-controller-iface.h"
