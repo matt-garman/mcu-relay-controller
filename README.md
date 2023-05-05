@@ -209,4 +209,5 @@ bypass switching scheme:
 7. [Latching relay driver with CMOS - difference between these two circuits?](https://www.diystompboxes.com/smfforum/index.php?topic=118021.0)
    discussion on DIYstompboxes
 8. [diyAudio](https://www.diyaudio.com/) - where I got my start in DIY audio electronics
+9. [The Best Switch Debounce Routine Ever](https://drmarty.blogspot.com/2009/05/best-switch-debounce-routine-ever.html)
 
