@@ -15,19 +15,15 @@
 //     - relay coil 2
 
 
-// global constants
-#define RELAY_SETTLE_TIME_MS 5
-#define SWITCH_DEBOUNCE_TIME_MS 75
-#define OFF 0
-#define ON 1
-
-
 // include hardware-specific implementation file(s)
 #ifdef IMPL_DUMMY
 #  include "dummy.h"
 #endif
 #ifdef IMPL_ATTINY
 #  include "attiny.h"
+#endif
+#ifdef IMPL_PIC12F675
+#  include "pic12f675.h"
 #endif
 
 

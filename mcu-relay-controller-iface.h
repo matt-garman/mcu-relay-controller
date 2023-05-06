@@ -13,6 +13,14 @@
 #include <stdint.h>
 
 
+// global constants
+#define RELAY_SETTLE_TIME_MS 5
+#define SWITCH_DEBOUNCE_TIME_MS 75
+#define OFF 0
+#define ON 1
+
+
+
 // called at program startup
 // generally, this should do things such as:
 //    - any startup delay
