@@ -22,6 +22,26 @@ LMC555, TLC555, TS555, but these are still relatively high-current compared to
 an MCU in sleep mode.)
 
 
+## Building and Programming
+
+For the AVR MCUs, the following assumes a "usbtiny" programmer:
+
+- ATtiny85
+```
+avr-gcc -Os -std=gnu99 -DF_CPU=1000000UL -DIMPL_ATTINY -mmcu=attiny85 -o attiny85.elf mcu-relay-controller.c attiny.c
+avr-objcopy -j .text -j .data -O ihex attiny85.elf attiny85.hex
+avrdude -c usbtiny -p attiny85 -v -P usb -U flash:w:attiny85.hex
+```
+- ATtiny13A - essentially the same as ATtiny85, but with the obvious
+  tool option changes and the additional define -DATTINY13
+
+```
+avr-gcc -Os -std=gnu99 -DF_CPU=1000000UL -DIMPL_ATTINY -DATTINY13 -mmcu=attiny13 -o attiny13.elf mcu-relay-controller.c attiny.c
+avr-objcopy -j .text -j .data -O ihex attiny13.elf attiny13.hex
+avrdude -c usbtiny -p attiny13 -v -P usb -U flash:w:attiny13.hex
+```
+
+
 ## Current State
 
 At the time of this writing, the "framework" aspect of this code is still in

@@ -16,11 +16,6 @@
 // PB0 => momentary switch
 
 
-// compile and program (assumes usbtiny programmer):
-//   avr-gcc -Os -std=gnu99 -DF_CPU=1000000UL -mmcu=attiny85 -o relay.elf sleepy_relay.c
-//   avr-objcopy -j .text -j .data -O ihex relay.elf relay.hex
-//   avrdude -c usbtiny -p attiny85 -v -P usb -U flash:w:relay.hex
-
 #include "mcu-relay-controller-iface.h"
 
 #include "attiny.h"
