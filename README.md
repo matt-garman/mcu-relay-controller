@@ -33,23 +33,26 @@ implementations for a few microcontrollers.  These compile, and work in basic
 testing.
 
 Currently supported microcontrollers:
-    - Microchip PIC12F675
-    - Microchip PIC10320
-    - ATmel ATTiny85
-    - ATmel ATTiny13A
+
+- Microchip PIC12F675
+- Microchip PIC10320
+- ATmel ATTiny85
+- ATmel ATTiny13A
 
 Microcontrollers that *probably* work with little-to-no modification of the
 code:
-    - ATTiny13 - appears to be same as ATTiny13 but older manufacturing
-      process
-    - ATTiny45 - appears to be same as ATTiny85 but with less memory
-    - PIC12F629 - appears to be same as PIC12F675 but without 10-bit A/D
-      converter
-    - PIC12F508, PIC12F609 - other possible alternatives to PIC12F675
+
+- ATTiny13 - appears to be same as ATTiny13 but older manufacturing
+  process
+- ATTiny45 - appears to be same as ATTiny85 but with less memory
+- PIC12F629 - appears to be same as PIC12F675 but without 10-bit A/D
+  converter
+- PIC12F508, PIC12F609 - other possible alternatives to PIC12F675
 
 Currently supported relays:
-    - Takamisawa AL5WN-K
-    - Panasonic TQ2-L-5V
+
+- Takamisawa AL5WN-K
+- Panasonic TQ2-L-5V
 
 
 ## Which MCU Should I Choose?
