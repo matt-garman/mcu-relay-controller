@@ -145,7 +145,7 @@ questions/considerations therefore:
 2. Peer-review of the code base
 3. Abstract and separate hardware details, ala Anduril's FSM (see credits)
 4. Add support for muting during relay state transition (see BYOC relay bypass
-   or [this post](https://www.diystompboxes.com/smfforum/index.php?topic=118021.msg1263909#msg1263909)
+   or [this post](https://www.diystompboxes.com/smfforum/index.php?topic=118021.msg1263909#msg1263909))
 5. Add support for two-coil relays (note this allows for simpler de-coupling
    of MCU and relay; see BYOC relay bypass)
 6. Add support for non-latching relays
