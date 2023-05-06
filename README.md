@@ -24,7 +24,10 @@ an MCU in sleep mode.)
 
 ## Building and Programming
 
-For the AVR MCUs, the following assumes a "usbtiny" programmer:
+For the AVR MCUs, I am using a "usbtiny" programmer, for example,
+[PGM-11801](https://www.sparkfun.com/products/11801).  I have added
+pre-built hex image files to the "images" folder, there's no need to
+compile if you just want to program your MCU.
 
 - ATtiny85
 ```
@@ -44,20 +47,19 @@ avrdude -c usbtiny -p attiny13 -v -P usb -U flash:w:attiny13.hex
 
 ## Current State
 
-At the time of this writing, the "framework" aspect of this code is still in
-"vision" form; that is, the generic interface that abstracts the hardware
-details is yet-to-come.
-
 Currently the project has, as a starting point, basic relay bypass
-implementations for a few microcontrollers.  These compile, and work in basic
-testing.
+implementations for a few microcontrollers.  These compile, and work
+in basic testing.
 
 Currently supported microcontrollers:
 
-- Microchip PIC12F675
-- Microchip PIC10320
 - ATmel ATTiny85
 - ATmel ATTiny13A
+
+Coming soon:
+
+- Microchip PIC12F675
+- Microchip PIC10320
 
 Microcontrollers that *probably* work with little-to-no modification of the
 code:
@@ -163,16 +165,15 @@ questions/considerations therefore:
 
 1. Verified predictability and reliabilty from extensive field-testing
 2. Peer-review of the code base
-3. Abstract and separate hardware details, ala Anduril's FSM (see credits)
-4. Add support for muting during relay state transition (see BYOC relay bypass
+3. Add support for muting during relay state transition (see BYOC relay bypass
    or [this post](https://www.diystompboxes.com/smfforum/index.php?topic=118021.msg1263909#msg1263909))
-5. Add support for two-coil relays (note this allows for simpler de-coupling
+4. Add support for two-coil relays (note this allows for simpler de-coupling
    of MCU and relay; see BYOC relay bypass)
-6. Add support for non-latching relays
-7. Generalize PCB with jumpers to be MCU agnostic
-8. Add support for fancier UI features, such as momentary-on, double-tap
+5. Add support for non-latching relays
+6. Generalize PCB with jumpers to be MCU agnostic
+7. Add support for fancier UI features, such as momentary-on, double-tap
    support, etc
-9. Implement scheme for having guaranteed user-defined power-off state (e.g.
+8. Implement scheme for having guaranteed user-defined power-off state (e.g.
    device always reverts to bypass on power loss, maybe use MCU watchdog or
    brownout detector)
 
