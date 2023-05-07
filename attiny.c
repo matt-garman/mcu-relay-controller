@@ -28,7 +28,7 @@
 #define STARTUP_DELAY_MS 10
 
 
-void MRC_hardware_init()
+void MRC_hardware_init(void)
 {
     // not sure if this is necessary - just want to give the mcu and
     // surrounding circuitry little time to "settle"
@@ -67,26 +67,26 @@ void MRC_hardware_init()
 
 }
 
-void MRC_disable_interrupts() { cli(); }
-void MRC_disable_sleep() { sleep_disable(); }
-void MRC_enable_interrupts() { sei(); }
+void MRC_disable_interrupts(void) { cli(); }
+void MRC_disable_sleep(void) { sleep_disable(); }
+void MRC_enable_interrupts(void) { sei(); }
 
-void MRC_enter_sleep_mode()
+void MRC_enter_sleep_mode(void)
 {
     sleep_enable(); // enable sleeping
     sleep_mode();   // go to sleep
 }
 
-void MRC_led_pin_set_high() { PORTB |=  (1 << PB1); }
-void MRC_led_pin_set_low()  { PORTB &= ~(1 << PB1); }
-void MRC_led_toggle()       { PORTB ^=  (1 << PB1); }
+void MRC_led_pin_set_high(void) { PORTB |=  (1 << PB1); }
+void MRC_led_pin_set_low(void)  { PORTB &= ~(1 << PB1); }
+void MRC_led_toggle(void)       { PORTB ^=  (1 << PB1); }
 
-void MRC_relay_coil_pin1_set_high() { PORTB |=  (1 << PB3); } // PB3 == pin1
-void MRC_relay_coil_pin1_set_low()  { PORTB &= ~(1 << PB3); }
-void MRC_relay_coil_pin2_set_high() { PORTB |=  (1 << PB2); } // PB2 == pin2
-void MRC_relay_coil_pin2_set_low()  { PORTB &= ~(1 << PB2); }
+void MRC_relay_coil_pin1_set_high(void) { PORTB |=  (1 << PB3); } // PB3 == pin1
+void MRC_relay_coil_pin1_set_low(void)  { PORTB &= ~(1 << PB3); }
+void MRC_relay_coil_pin2_set_high(void) { PORTB |=  (1 << PB2); } // PB2 == pin2
+void MRC_relay_coil_pin2_set_low(void)  { PORTB &= ~(1 << PB2); }
 
-uint8_t MRC_switch_pin_get_state() { return (PINB & 0b1); }
+uint8_t MRC_switch_pin_get_state(void) { return (PINB & 0b1); }
 
 
 // https://www.nongnu.org/avr-libc/user-manual/group__avr__interrupts.html

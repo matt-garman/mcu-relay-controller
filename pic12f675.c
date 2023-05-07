@@ -36,7 +36,7 @@
 #define STARTUP_DELAY_MS 72 // startup delay - FIXME - where 72ms comes from?
 
 
-void MRC_hardware_init()
+void MRC_hardware_init(void)
 {
     __delay_ms(STARTUP_DELAY_MS);
 
@@ -77,22 +77,22 @@ void MRC_hardware_init()
 }
 
 
-void MRC_disable_interrupts() { INTCON = 0; } // FIXME - use di() instead???
-void MRC_disable_sleep() { }
-void MRC_enable_interrupts() { INTCON = 0b10001000; } // FIXME - use ei() instead?
+void MRC_disable_interrupts(void) { INTCON = 0; } // FIXME - use di() instead???
+void MRC_disable_sleep(void) { }
+void MRC_enable_interrupts(void) { INTCON = 0b10001000; } // FIXME - use ei() instead?
 
-void MRC_enter_sleep_mode() { SLEEP(); }
+void MRC_enter_sleep_mode(void) { SLEEP(); }
 
-void MRC_led_pin_set_high() { GP0 = ON;   }
-void MRC_led_pin_set_low()  { GP0 = OFF;  }
-void MRC_led_toggle()       { GP0 = !GP0; }
+void MRC_led_pin_set_high(void) { GP0 = ON;   }
+void MRC_led_pin_set_low(void)  { GP0 = OFF;  }
+void MRC_led_toggle(void)       { GP0 = !GP0; }
 
-void MRC_relay_coil_pin1_set_high() { GP5 = 1; } // GP5 == pin1
-void MRC_relay_coil_pin1_set_low()  { GP5 = 0; }
-void MRC_relay_coil_pin2_set_high() { GP4 = 1; } // GP4 == pin2
-void MRC_relay_coil_pin2_set_low()  { GP4 = 0; }
+void MRC_relay_coil_pin1_set_high(void) { GP5 = 1; } // GP5 == pin1
+void MRC_relay_coil_pin1_set_low(void)  { GP5 = 0; }
+void MRC_relay_coil_pin2_set_high(void) { GP4 = 1; } // GP4 == pin2
+void MRC_relay_coil_pin2_set_low(void)  { GP4 = 0; }
 
-uint8_t MRC_switch_pin_get_state() { return GP1; }
+uint8_t MRC_switch_pin_get_state(void) { return GP1; }
 
 // https://www.microforum.cc/topic/38-help-with-this-error-error-variable-has-incomplete-type-void/
 // http://picforum.ric323.com/viewtopic.php?f=44&t=701
