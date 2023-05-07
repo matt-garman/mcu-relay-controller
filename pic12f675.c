@@ -77,11 +77,18 @@ void MRC_hardware_init(void)
 }
 
 
-void MRC_disable_interrupts(void) { INTCON = 0; } // FIXME - use di() instead???
+void MRC_disable_interrupts(void) { }
 void MRC_disable_sleep(void) { }
-void MRC_enable_interrupts(void) { INTCON = 0b10001000; } // FIXME - use ei() instead?
+void MRC_enable_interrupts(void) { INTCON = 0b10001000; } // use ei() instead?
 
-void MRC_enter_sleep_mode(void) { SLEEP(); }
+// this is a bit of a hack - even though the main function does
+//    MRC_enable_interrupts()
+//    MRC_enter_sleep_mode()
+// something was happening that would result in the mcu working as expected a
+// few times, then get "stuck" in sleep mode; my hunch is that code was being
+// re-ordered, and the interrupt wasn't truly being enabled before going to
+// sleep
+void MRC_enter_sleep_mode(void) { INTCON = 0b10001000; SLEEP(); }
 
 void MRC_led_pin_set_high(void) { GP0 = ON;   }
 void MRC_led_pin_set_low(void)  { GP0 = OFF;  }
@@ -98,6 +105,7 @@ uint8_t MRC_switch_pin_get_state(void) { return GP1; }
 // http://picforum.ric323.com/viewtopic.php?f=44&t=701
 void __interrupt() ISR(void)
 {
-    INTCON = 0; // disable interrupts and clear interrupt flags
+    INTCON = 0; // disable interrupts and clear interrupt flags - should we
+                // use di() instead?
 }
 
