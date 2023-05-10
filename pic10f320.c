@@ -61,15 +61,17 @@ void MRC_hardware_init(void)
     IOCAP = 0; // disable interrupt-on-change (IOC) PORTA positive edge resistors for all pins
     IOCAN = 0b00001000; // IOCAN3 (RA3) OC PORTA negative edge resistor
     
-    OSCCON = 0b00110000; // 1 MHz
+    //OSCCON = 0b00110000; // 1 MHz
 }
 
+#define pic10f320_enable_interrupts() do { IOCAP=0; IOCAN=0b00001000; INTCON=0b10001000; } while(0)
 
-void MRC_disable_interrupts(void) { }
+
+void MRC_disable_interrupts(void) {  }
 void MRC_disable_sleep(void) { }
-void MRC_enable_interrupts(void) { INTCON = 0b10001000; } // use ei() instead?
+void MRC_enable_interrupts(void) {  } // use ei() instead?
 
-void MRC_enter_sleep_mode(void) { INTCON = 0b10001000; SLEEP(); }
+void MRC_enter_sleep_mode(void) { pic10f320_enable_interrupts(); SLEEP(); }
 
 void MRC_led_pin_set_high(void) { RA0 = ON;   }
 void MRC_led_pin_set_low(void)  { RA0 = OFF;  }
@@ -80,11 +82,15 @@ void MRC_relay_coil_pin1_set_low(void)  { RA2 = 0; }
 void MRC_relay_coil_pin2_set_high(void) { RA1 = 1; } // RA1 == pin2
 void MRC_relay_coil_pin2_set_low(void)  { RA1 = 0; }
 
-uint8_t MRC_switch_pin_get_state(void) { return RA3; }
+uint8_t MRC_switch_pin_get_state(void)
+{ 
+    return ( (INTCON & 0b1) && (IOCAF & 0b00001000) && (0 == RA3) ) ? 0 : 1;
+}
+
+void MRC_switch_pin_clear_int_flags(void) { IOCAF = 0; }
 
 void __interrupt() ISR(void)
 {
-    INTCON = 0; // disable interrupts and clear interrupt flags - should we
-                // use di() instead?
+    INTCON = 0;
 }
 

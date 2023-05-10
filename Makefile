@@ -10,6 +10,9 @@ attiny85:
 pic12f675:
 	xc8-cc -mcpu=pic12f675 -Os -DIMPL_PIC12F675 pic12f675.c  mcu-relay-controller.c
 
+pic10f320:
+	xc8-cc -mcpu=pic10f320 -Os -DIMPL_PIC10F320 pic10f320.c  mcu-relay-controller.c
+
 clean:
 	rm -f *.elf *.hex *.hxl *.o *.s *.p1 *.sdb *.sym *.cmf *.lst *.rlf *.d *~
 

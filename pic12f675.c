@@ -100,6 +100,7 @@ void MRC_relay_coil_pin2_set_high(void) { GP4 = 1; } // GP4 == pin2
 void MRC_relay_coil_pin2_set_low(void)  { GP4 = 0; }
 
 uint8_t MRC_switch_pin_get_state(void) { return GP1; }
+void MRC_switch_pin_clear_int_flags(void) { }
 
 // https://www.microforum.cc/topic/38-help-with-this-error-error-variable-has-incomplete-type-void/
 // http://picforum.ric323.com/viewtopic.php?f=44&t=701
