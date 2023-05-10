@@ -13,13 +13,35 @@
 #include <stdint.h>
 
 
-// global constants
+/*
+ * global constants
+ */
+
+// - how long must a current be applied to the relay coil in order for it to
+//   reliably change state?
+// - this is relay-specific, consult the relay's datasheet; for the Takamisawa
+//   AL5WN-K and Panasonic TQ2-L-5V, 3ms is specified, but we add a couple
+//   millisecs for margin
 #define RELAY_SETTLE_TIME_MS 5
+
+// - the reference implementation circuit includes an RF filter on wire
+//   between MCU and momentary switch, which "should" eliminate spurious
+//   pin-change interrupts
+// - because of the RF filter and that we are using interrupts to trigger the
+//   "respond to switch press" routine, we will debounce the switch by simply
+//   adding a delay
 #define SWITCH_DEBOUNCE_TIME_MS 75
+
+// hopefully these are self-explanatory :)
 #define OFF 0
 #define ON 1
 
 
+/*
+ * abstractions for hardware-specific functionality
+ *
+ * see example implementations: some of these functions may have empty bodies
+ */
 
 // called at program startup
 // generally, this should do things such as:
@@ -30,13 +52,13 @@
 //    - any other hardware-specific stuff
 void MRC_hardware_init(void);
 
-// abstractions for hardware-specific functionality
+// sleep and interrupt related
+// note that MRC_sleep_millisecs() is a macro, rather than a function
 void MRC_disable_interrupts(void);
 void MRC_disable_sleep(void);
 void MRC_enable_interrupts(void);
 void MRC_enter_sleep_mode(void);
 #undef MRC_sleep_millisecs
-
 
 // status indicator LED functionality, toggle state of the pin connected to
 // the status LED; convention used here:
