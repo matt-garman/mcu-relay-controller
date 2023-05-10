@@ -19,7 +19,8 @@
 #pragma config WRT = OFF        // Flash Memory Self-Write Protection (Write protection off)
 
 
-#define _XTAL_FREQ 1000000  // OSCCON = 0b00110000; // 1 MHz
+//#define _XTAL_FREQ 1000000  // OSCCON = 0b00110000; // 1 MHz
+#define _XTAL_FREQ 8000000  // 8Mhz, default after reset
 
 #define MRC_sleep_millisecs(n) __delay_ms(n);
 

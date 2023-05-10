@@ -87,6 +87,7 @@ void MRC_relay_coil_pin2_set_high(void) { PORTB |=  (1 << PB2); } // PB2 == pin2
 void MRC_relay_coil_pin2_set_low(void)  { PORTB &= ~(1 << PB2); }
 
 uint8_t MRC_switch_pin_get_state(void) { return (PINB & 0b1); }
+void MRC_switch_pin_clear_int_flags(void) { }
 
 
 // https://www.nongnu.org/avr-libc/user-manual/group__avr__interrupts.html
