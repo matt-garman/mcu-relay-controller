@@ -55,9 +55,6 @@ Currently supported microcontrollers:
 
 - ATmel ATTiny85
 - ATmel ATTiny13A
-
-Coming soon:
-
 - Microchip PIC12F675
 - Microchip PIC10320
 
@@ -67,6 +64,7 @@ code:
 - ATTiny13 - appears to be same as ATTiny13 but older manufacturing
   process
 - ATTiny45 - appears to be same as ATTiny85 but with less memory
+- PIC10F322 - essentially same as 10F320
 - PIC12F629 - appears to be same as PIC12F675 but without 10-bit A/D
   converter
 - PIC12F508, PIC12F609 - other possible alternatives to PIC12F675
