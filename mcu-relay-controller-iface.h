@@ -64,4 +64,5 @@ void MRC_relay_coil_pin2_set_low(void);
 // pin low
 // should return 1 for HIGH or 0 for LOW
 uint8_t MRC_switch_pin_get_state(void);
+void MRC_switch_pin_clear_int_flags(void);
 
