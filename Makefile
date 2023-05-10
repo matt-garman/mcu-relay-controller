@@ -1,5 +1,7 @@
 # vim: tw=0 nowrap
 
+dummy:
+	gcc -Wall -ggdb3 -Os -DIMPL_DUMMY mcu-relay-controller.c dummy.c
 
 attiny13:
 	avr-gcc -Os -std=gnu99 -DIMPL_ATTINY -DATTINY13 -DF_CPU=1000000UL -mmcu=attiny13 -o attiny13.elf mcu-relay-controller.c attiny.c
