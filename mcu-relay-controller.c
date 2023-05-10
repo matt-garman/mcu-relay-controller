@@ -25,6 +25,9 @@
 #ifdef IMPL_PIC12F675
 #  include "pic12f675.h"
 #endif
+#ifdef IMPL_PIC10F320
+#  include "pic10f320.h"
+#endif
 
 
 // the relay has two states, which we'll call ON or OFF
@@ -71,6 +74,7 @@ int main(int argc, char* argv[])
 
         if (0 == MRC_switch_pin_get_state())
         {
+            MRC_switch_pin_clear_int_flags();
             relay_toggle();
             MRC_led_toggle();
             MRC_sleep_millisecs(SWITCH_DEBOUNCE_TIME_MS);
