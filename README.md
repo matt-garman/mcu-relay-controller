@@ -232,5 +232,7 @@ bypass switching scheme:
    discussion on DIYstompboxes
 8. [diyAudio](https://www.diyaudio.com/) - where I got my start in DIY audio electronics
 9. [The Best Switch Debounce Routine Ever](https://drmarty.blogspot.com/2009/05/best-switch-debounce-routine-ever.html)
-10. Electrical Engineering StackExchange [Should I protect against collapsing field effects of a microcontroller-driven small-signal relay coil?](https://electronics.stackexchange.com/questions/666328/should-i-protect-against-collapsing-field-effects-of-a-microcontroller-driven-sm) - suggests 
+10. Electrical Engineering StackExchange [Should I protect against collapsing field effects of a microcontroller-driven small-signal relay coil?](https://electronics.stackexchange.com/questions/666328/should-i-protect-against-collapsing-field-effects-of-a-microcontroller-driven-sm)
+- suggests that using MCU I/O pins to directly drive a relay coil is likely a
+bad design; dedicated driver circuitry should go between MCU and relay.
 
