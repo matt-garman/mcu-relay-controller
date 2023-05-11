@@ -143,10 +143,10 @@ a *simple*, plug-and-play implementation.  The goal is to be as simple as
 possible, but without sacrificing reliability or longevity.  Some open
 questions/considerations therefore:
 
-1. Should we better isolate the MCU from the relay coil, e.g. by implementing
-   an H-Bridge?  The concerns here are (1) using the MCU as a current
+1. Should we better isolate the MCU from the relay coil?  The concerns here are (1) using the MCU as a current
    source/sink when powering the coil, and (2) damage to the MCU pins from the
-   coil's collapsing field after activation.
+   coil's collapsing field after activation.  *Answer: almost certainly, yes;
+   see [this](https://electronics.stackexchange.com/questions/666328/should-i-protect-against-collapsing-field-effects-of-a-microcontroller-driven-sm).*
 2. Are the internal pullup/pulldown resistors sufficient for our purposes?
 3. The reference PCB implements a basic RF filter on the line between switch
    and MCU; is this neccessary?  If so, is it sufficient?
@@ -232,4 +232,5 @@ bypass switching scheme:
    discussion on DIYstompboxes
 8. [diyAudio](https://www.diyaudio.com/) - where I got my start in DIY audio electronics
 9. [The Best Switch Debounce Routine Ever](https://drmarty.blogspot.com/2009/05/best-switch-debounce-routine-ever.html)
+10. Electrical Engineering StackExchange [Should I protect against collapsing field effects of a microcontroller-driven small-signal relay coil?](https://electronics.stackexchange.com/questions/666328/should-i-protect-against-collapsing-field-effects-of-a-microcontroller-driven-sm) - suggests 
 
