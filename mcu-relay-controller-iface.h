@@ -22,7 +22,10 @@
 // - this is relay-specific, consult the relay's datasheet; for the Takamisawa
 //   AL5WN-K and Panasonic TQ2-L-5V, 3ms is specified, but we add a couple
 //   millisecs for margin
-#define RELAY_SETTLE_TIME_MS 5
+// - read of the Kemet EC2-3TNU (which has very similar specs as Panasonic
+//   TQ2-L-5V) datasheet suggests a current pulse time of 10ms to account for
+//   relay bounce time
+#define RELAY_SETTLE_TIME_MS 10
 
 // - the reference implementation circuit includes an RF filter on wire
 //   between MCU and momentary switch, which "should" eliminate spurious
