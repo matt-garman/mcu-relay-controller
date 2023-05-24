@@ -11,10 +11,10 @@
 //                                GND pin4-|    |-pin5 PB0 (MOSI/DI/SDA/AIN0/OC0A/~OC1A/AREF/PCINT0)
 //                                         +----+
 //
-// PB3, PB2 => relay coil
-// PB1 => status indicator LED
 // PB0 => momentary switch
-
+// PB1 => status indicator LED
+// PB3 => relay coil pin1 (goes high for set/activate)
+// PB2 => relay coil pin2 (goes high for reset/deactivate)
 
 #include "mcu-relay-controller-iface.h"
 
