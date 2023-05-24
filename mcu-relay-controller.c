@@ -33,7 +33,7 @@
 // the relay has two states, which we'll call ON or OFF
 volatile uint8_t relay_state = OFF;
 
-void relay_activate(void)
+void relay_activate(void) // aka "set"
 {
     MRC_relay_coil_pin1_set_high();
     MRC_relay_coil_pin2_set_low(); // should already be low
@@ -42,7 +42,7 @@ void relay_activate(void)
     relay_state = ON;
 }
 
-void relay_deactivate(void)
+void relay_deactivate(void) // aka "reset"
 {
     MRC_relay_coil_pin2_set_high();
     MRC_relay_coil_pin1_set_low(); // should already be low
