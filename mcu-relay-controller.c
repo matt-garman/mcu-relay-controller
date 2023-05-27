@@ -57,6 +57,23 @@ void relay_toggle(void)
     else                    { relay_deactivate(); }
 }
 
+uint8_t debounce_switch()
+{
+    uint16_t const TARGET = 0xFFFF; // read 16 consecutive desired states
+
+    uint16_t state = (0 == MRC_switch_pin_get_state() ? 1 : 0);
+    for (   uint16_t i=0 ;
+            ((i<MAX_N_SWITCH_DEBOUNCE_READS) && (TARGET != state)) ;
+            ++i)
+    {
+        state  = (state << 1);
+        state |= (0 == MRC_switch_pin_get_state() ? 1 : 0);
+        MRC_sleep_microsecs(50);
+    }
+
+    return (TARGET == state ? TRUE : FALSE);
+}
+
 int main(int argc, char* argv[])
 {
     // initialize hardware
@@ -72,9 +89,10 @@ int main(int argc, char* argv[])
         MRC_disable_interrupts();
         MRC_disable_sleep();
 
-        if (0 == MRC_switch_pin_get_state())
+        uint8_t const switch_pressed = debounce_switch();
+        MRC_switch_pin_clear_int_flags();
+        if (switch_pressed)
         {
-            MRC_switch_pin_clear_int_flags();
             relay_toggle();
             MRC_led_toggle();
             MRC_sleep_millisecs(SWITCH_DEBOUNCE_TIME_MS);

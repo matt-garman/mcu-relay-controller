@@ -25,7 +25,7 @@
 // - read of the Kemet EC2-3TNU (which has very similar specs as Panasonic
 //   TQ2-L-5V) datasheet suggests a current pulse time of 10ms to account for
 //   relay bounce time
-#define RELAY_SETTLE_TIME_MS 10
+#define RELAY_SETTLE_TIME_MS 25
 
 // - the reference implementation circuit includes an RF filter on wire
 //   between MCU and momentary switch, which "should" eliminate spurious
@@ -33,12 +33,18 @@
 // - because of the RF filter and that we are using interrupts to trigger the
 //   "respond to switch press" routine, we will debounce the switch by simply
 //   adding a delay
-#define SWITCH_DEBOUNCE_TIME_MS 75
+#define SWITCH_DEBOUNCE_TIME_MS 100
+
+#define MAX_N_SWITCH_DEBOUNCE_READS 4095
 
 // hopefully these are self-explanatory :)
 #define OFF 0
 #define ON 1
 
+#ifndef FALSE
+#  define FALSE (0)
+#  define TRUE (!FALSE)
+#endif
 
 /*
  * abstractions for hardware-specific functionality
