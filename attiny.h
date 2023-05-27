@@ -5,5 +5,6 @@
 #include <util/delay.h>    // Defines _delay_ms
 
 #define MRC_sleep_millisecs(n) _delay_ms(n);
+#define MRC_sleep_microsecs(n) _delay_us(n);
 
 

@@ -25,7 +25,7 @@
 #include <avr/sleep.h>     // sleep states
 #include <avr/interrupt.h> // ISR() interrupt service routine macro
 
-#define STARTUP_DELAY_MS 10
+#define STARTUP_DELAY_MS 5
 
 
 void MRC_hardware_init(void)
@@ -59,6 +59,12 @@ void MRC_hardware_init(void)
     // PCINT0 = bit0 of PCMSK, aka physical pin5 aka PB0
     // see page 52, section 9.3.4 of datasheet
     PCMSK = 0b00000001; 
+
+    // MCU Control Register
+    // Bits 1:0 - ISC0[1:0]: Interrupt Sense Control 0 Bit 1 and Bit 0
+    //MCUCR = 0b00000010; // falling edge of INT0 generates an interrupt request
+
+    _delay_ms(STARTUP_DELAY_MS);
 
     // SLEEP_MODE_PWR_DOWN is the lowest power state for the ATtiny45/85
     // for our purposes, we generally want only the pin-change detection
