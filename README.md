@@ -234,4 +234,6 @@ bypass switching scheme:
 9. [The Best Switch Debounce Routine Ever](https://drmarty.blogspot.com/2009/05/best-switch-debounce-routine-ever.html)
 10. Electrical Engineering StackExchange [Should I protect against collapsing field effects of a microcontroller-driven small-signal relay coil?](https://electronics.stackexchange.com/questions/666328/should-i-protect-against-collapsing-field-effects-of-a-microcontroller-driven-sm) - suggests that using MCU I/O pins to directly drive a relay coil is likely a
 bad design; dedicated driver circuitry should go between MCU and relay.
+11. Thread I started on diyAudio: [Microcontroller-driven latching relay](https://www.diyaudio.com/community/threads/microcontroller-driven-latching-relay.399347/)
+12. [A Guide to Debouncing, or, How to Debounce a Contact in Two Easy Pages, by Jack Ganssle](http://www.ganssle.com/debouncing.htm)
 
