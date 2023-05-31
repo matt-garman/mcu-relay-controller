@@ -1,6 +1,29 @@
 
 # README
 
+
+## Status
+
+May 31, 2023:
+
+- GitHub commit *FIXME* has code that seems to work reliably with
+  ATtiny13a/ATtiny85
+- This is using PCB v1.0, where the MCU directly drives the relay
+- I will post PCB v1.0 schematic, Gerbers and KiCad files shortly - stay
+  tuned!
+- Prebuilt images for ATtiny13a/85 will be available soon - stay tuned!
+
+Next Steps:
+
+- Wait on v2.0 of PCB
+    - run at 3.3v (instead of 5.0v)
+    - use double-coil Kemet EC2-3TNU latching relay
+    - drive relay with transistors instead of MCU
+    - include flyback protection diodes
+- Breadboard test of PIC10F322 and PIC12F675 MCUs
+- Order PCBs for PIC microcontrollers
+
+
 ## Overview
 
 mcu-relay-bypass is intended to be a very simple framework and reference
@@ -45,7 +68,7 @@ avrdude -c usbtiny -p attiny13 -v -P usb -U flash:w:attiny13.hex
 ```
 
 
-## Current State
+## Supported Hardware
 
 Currently the project has, as a starting point, basic relay bypass
 implementations for a few microcontrollers.  These compile, and work
@@ -69,10 +92,12 @@ code:
   converter
 - PIC12F508, PIC12F609 - other possible alternatives to PIC12F675
 
-Currently supported relays:
+Currently supported relays (PCB v1.0):
 
 - Takamisawa AL5WN-K
 - Panasonic TQ2-L-5V
+
+Currently supported relays (PCB v1.0):
 
 
 ## Which MCU Should I Choose?
@@ -126,10 +151,11 @@ In pseudocode, the program works like this:
     4. put MCU in sleep mode (MCU will wake on pin change interrupt)
     5. when MCU is awakened by pin change interrupt:
        a. disable interrupts
-       b. flip change relay state
-       c. flip status LED state
-       d. re-enable interrupts
-       e. put MCU in sleep mode
+       b. debounce switch
+       c. flip change relay state
+       d. flip status LED state
+       e. re-enable interrupts
+       f. put MCU in sleep mode
 ```
 
 In practice, the actual code almost matches the pseudocode 1:1, and (without
@@ -236,4 +262,5 @@ bypass switching scheme:
 bad design; dedicated driver circuitry should go between MCU and relay.
 11. Thread I started on diyAudio: [Microcontroller-driven latching relay](https://www.diyaudio.com/community/threads/microcontroller-driven-latching-relay.399347/)
 12. [A Guide to Debouncing, or, How to Debounce a Contact in Two Easy Pages, by Jack Ganssle](http://www.ganssle.com/debouncing.htm)
+13. [Flyback Diodes and Relays](https://forum.pedalpcb.com/threads/flyback-diodes-and-relays.3576/post-28437) - Chuck D Bones on PedalPCB forum showing that directly driving a relay coil from an ATtiny is probably ok
 
