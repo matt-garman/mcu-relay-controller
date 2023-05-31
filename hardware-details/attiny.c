@@ -92,7 +92,7 @@ void MRC_relay_coil_pin1_set_low(void)  { PORTB &= ~(1 << PB3); }
 void MRC_relay_coil_pin2_set_high(void) { PORTB |=  (1 << PB2); } // PB2 == pin2
 void MRC_relay_coil_pin2_set_low(void)  { PORTB &= ~(1 << PB2); }
 
-uint8_t MRC_switch_pin_get_state(void) { return 0 == (PINB & 0b1) ? HIGH : LOW; }
+uint8_t MRC_switch_pin_get_state(void) { return 0 == (PINB & 0b1) ? LOW : HIGH; }
 void MRC_switch_pin_clear_int_flags(void) { }
 
 
