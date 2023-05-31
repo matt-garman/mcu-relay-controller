@@ -4,7 +4,7 @@
 //
 //                       +----+
 // N/C              pin1-|    |-pin8 RA3/~MCLR/VPP/IOC3
-// VDD              pin2-|    |-pin7 VSS
+// VDD              pin2-|    |-pin7 VSS/GND
 // RA2/INT/IOC2     pin3-|    |-pin6 N/C
 // ICSPCLK/RA1/IOC1 pin4-|    |-pin5 RA0/ICSPDAT/IOC0
 //                       +----+
