@@ -28,7 +28,7 @@
 //
 
 
-#include "mcu-relay-controller-iface.h"
+#include "../mcu-relay-controller-iface.h"
 
 #include "pic12f675.h"
 

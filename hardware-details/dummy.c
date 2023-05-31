@@ -12,7 +12,7 @@
 
 #include "dummy.h"
 
-#include "mcu-relay-controller-iface.h"
+#include "../mcu-relay-controller-iface.h"
 
 void MRC_hardware_init(void) { }
 void MRC_disable_interrupts(void) { }
