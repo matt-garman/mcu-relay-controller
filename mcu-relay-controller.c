@@ -57,19 +57,20 @@ void relay_toggle(void)
 
 uint8_t debounce_switch(void)
 {
-    uint8_t state = (0 == MRC_switch_pin_get_state() ? 1 : 0);
+    uint8_t state = (LOW == MRC_switch_pin_get_state() ? 1 : 0);
+
     for (   uint8_t i=0 ;
             ((i<MAX_N_SWITCH_DEBOUNCE_READS) &&
              (SWITCH_DEBOUNCE_TARGET != state)) ;
-            ++i)
+            ++i )
     {
         state  = (uint8_t)(state << 1);
-        state |= (0 == MRC_switch_pin_get_state() ? 1 : 0);
+        state |= (LOW == MRC_switch_pin_get_state() ? 1 : 0);
         state &= SWITCH_DEBOUNCE_TARGET;
         MRC_sleep_millisecs(1);
     }
 
-    return SWITCH_DEBOUNCE_TARGET == state ? TRUE : FALSE;
+    return SWITCH_DEBOUNCE_TARGET == state;
 }
 
 // blink the status LED a few times

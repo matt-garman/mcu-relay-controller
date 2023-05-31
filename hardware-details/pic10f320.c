@@ -84,7 +84,8 @@ void MRC_relay_coil_pin2_set_low(void)  { RA1 = 0; }
 
 uint8_t MRC_switch_pin_get_state(void)
 { 
-    return ( (INTCON & 0b1) && (IOCAF & 0b00001000) && (0 == RA3) ) ? 0 : 1;
+    return 
+        ((INTCON & 0b1) && (IOCAF & 0b00001000) && (0 == RA3)) ? LOW : HIGH;
 }
 
 void MRC_switch_pin_clear_int_flags(void) { IOCAF = 0; }

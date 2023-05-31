@@ -44,14 +44,17 @@
 // - this number is used in the switch debounce routine; it defines how many
 //   consecutive desired state reads we need from the switch to consider it
 //   pressed
-// - 0xF is hex, corresponding binary (uint8_t) is: 0b00001111
-//   in other words, we want four consecutive, consistent reads of the switch
+// - 0xFF is hex, corresponding binary (uint8_t) is: 0b11111111
+//   in other words, we want eight consecutive, consistent reads of the switch
 //   state to consider it pressed and de-bounced
-#define SWITCH_DEBOUNCE_TARGET 0xF
+#define SWITCH_DEBOUNCE_TARGET 0xFF
 
 // hopefully these are self-explanatory :)
-#define OFF 0
-#define ON 1
+#define OFF (0)
+#define ON (1)
+
+#define LOW (0)
+#define HIGH (1)
 
 #ifndef FALSE
 #  define FALSE (0)
@@ -105,7 +108,7 @@ void MRC_relay_coil_pin2_set_low(void);
 // convention used here: the momentary switch pin will normally be kept high
 // (e.g. via pullup resistor); with the switch is pressed, it will force the
 // pin low
-// should return 1 for HIGH or 0 for LOW
+// should return HIGH or LOW
 uint8_t MRC_switch_pin_get_state(void);
 
 // some micro-controllers (e.g. pic10f320) set a flag when an interrupt is
