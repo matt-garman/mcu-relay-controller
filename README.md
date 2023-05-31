@@ -51,9 +51,12 @@ For the AVR MCUs, I am using a "usbtiny" programmer, for example,
 pre-built hex image files to the "images" folder, there's no need to
 compile if you just want to program your MCU.
 
+*Note:* skip the `avr-gcc` and `avr-objcopy` steps if you just want to use the
+pre-compiled images.
+
 - ATtiny85
 ```
-avr-gcc -Os -std=gnu99 -DF_CPU=1000000UL -DIMPL_ATTINY -mmcu=attiny85 -o attiny85.elf mcu-relay-controller.c attiny.c
+avr-gcc -Os -std=gnu99 -DF_CPU=1000000UL -DIMPL_ATTINY -mmcu=attiny85 -o attiny85.elf mcu-relay-controller.c hardware-details/attiny.c
 avr-objcopy -j .text -j .data -O ihex attiny85.elf attiny85.hex
 avrdude -c usbtiny -p attiny85 -v -P usb -U flash:w:attiny85.hex
 ```
@@ -61,7 +64,7 @@ avrdude -c usbtiny -p attiny85 -v -P usb -U flash:w:attiny85.hex
   tool option changes and the additional define -DATTINY13
 
 ```
-avr-gcc -Os -std=gnu99 -DF_CPU=1000000UL -DIMPL_ATTINY -DATTINY13 -mmcu=attiny13 -o attiny13.elf mcu-relay-controller.c attiny.c
+avr-gcc -Os -std=gnu99 -DF_CPU=1000000UL -DIMPL_ATTINY -DATTINY13 -mmcu=attiny13 -o attiny13.elf mcu-relay-controller.c hardware-details/attiny.c
 avr-objcopy -j .text -j .data -O ihex attiny13.elf attiny13.hex
 avrdude -c usbtiny -p attiny13 -v -P usb -U flash:w:attiny13.hex
 ```
