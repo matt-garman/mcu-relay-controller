@@ -16,7 +16,7 @@
 // PB3 => relay coil pin1 (goes high for set/activate)
 // PB2 => relay coil pin2 (goes high for reset/deactivate)
 
-#include "mcu-relay-controller-iface.h"
+#include "../mcu-relay-controller-iface.h"
 
 #include "attiny.h"
 

@@ -17,16 +17,16 @@
 
 // include hardware-specific implementation file(s)
 #ifdef IMPL_DUMMY
-#  include "dummy.h"
+#  include "hardware-details/dummy.h"
 #endif
 #ifdef IMPL_ATTINY
-#  include "attiny.h"
+#  include "hardware-details/attiny.h"
 #endif
 #ifdef IMPL_PIC12F675
-#  include "pic12f675.h"
+#  include "hardware-details/pic12f675.h"
 #endif
 #ifdef IMPL_PIC10F320
-#  include "pic10f320.h"
+#  include "hardware-details/pic10f320.h"
 #endif
 
 

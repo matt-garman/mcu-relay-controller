@@ -2,6 +2,9 @@
 // Licensed under the MIT License. See LICENSE in the project root for
 // license information.
 
+#ifndef PIC10F320_H__
+#define PIC10F320_H__
+
 #include <xc.h>
 
 
@@ -24,4 +27,5 @@
 
 #define MRC_sleep_millisecs(n) __delay_ms(n);
 
+#endif // PIC10F320_H__
 

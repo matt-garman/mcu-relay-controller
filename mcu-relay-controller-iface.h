@@ -2,6 +2,8 @@
 // Licensed under the MIT License. See LICENSE in the project root for
 // license information.
 
+#ifndef MCU_RELAY_CONTROLLER_IFACE_H__
+#define MCU_RELAY_CONTROLLER_IFACE_H__
 
 /*
  * interface
@@ -109,4 +111,6 @@ uint8_t MRC_switch_pin_get_state(void);
 // some micro-controllers (e.g. pic10f320) set a flag when an interrupt is
 // triggered, and that flag needs to be cleared after it is read.
 void MRC_switch_pin_clear_int_flags(void);
+
+#endif // MCU_RELAY_CONTROLLER_IFACE_H__
 

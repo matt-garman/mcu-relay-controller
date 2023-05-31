@@ -28,7 +28,7 @@
 // Building:
 // xc8-cc -Os -mcpu=10F320 sleepy-bypass.c
 
-#include "mcu-relay-controller-iface.h"
+#include "../mcu-relay-controller-iface.h"
 
 #include "pic10f320.h"
 
