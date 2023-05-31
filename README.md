@@ -4,18 +4,17 @@
 
 ## Status
 
-May 31, 2023:
+Targeting June 4, 2023:
 
-- GitHub commit *FIXME* has code that seems to work reliably with
-  ATtiny13a/ATtiny85
-- This is using PCB v1.0, where the MCU directly drives the relay
-- I will post PCB v1.0 schematic, Gerbers and KiCad files shortly - stay
-  tuned!
+- GitHub commit (TBD) has code that works reliably for ATtiny13A, ATtiny85
 - Prebuilt images for ATtiny13a/85 will be available soon - stay tuned!
+- PCB v1.0, where the MCU directly drives the relay, is being used by my DIY
+  pedals on my board (i.e. daily use)
+- PCB v1.0 schematic, Gerbers and KiCad files will be posted
 
 Next Steps:
 
-- Wait on v2.0 of PCB
+- Wait on v2.0 of PCB (expected mid-June), with following changes:
     - run at 3.3v (instead of 5.0v)
     - use double-coil Kemet EC2-3TNU latching relay
     - drive relay with transistors instead of MCU
