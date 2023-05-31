@@ -67,19 +67,22 @@ avrdude -c usbtiny -p attiny13 -v -P usb -U flash:w:attiny13.hex
 ```
 
 
-## Code Overview
+## Code Repo Organization
 
 Two source files constitute the core of the project:
 
-- mcu-relay-controller-iface.h - this defines teh hardware-abstracted
+- `mcu-relay-controller-iface.h`: this defines teh hardware-abstracted
   interface for the project; it is essentially a high-level collection of
   hardware-independent functions (and macros) which can be used to build a
   microcontroller-driven relay circuit
-- mcu-relay-controller.c - this defines the main() function, and uses the
+- `mcu-relay-controller.c`: this defines the main() function, and uses the
   interfaces defined in the above h file
 
 For each supported microcontroller, there is a corresponding .c and .h file in
 the `hardware-details` folder.
+
+The `images` folder has prebuild files, ready to be flashed to an
+MCU.
 
 
 ## Supported Hardware
