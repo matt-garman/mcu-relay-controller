@@ -23,7 +23,7 @@ Next Steps:
 - Order PCBs for PIC microcontrollers
 
 
-## Overview
+## Project Overview
 
 mcu-relay-bypass is intended to be a very simple framework and reference
 implementation of suitable code for programming microcontrollers to respond to
@@ -51,8 +51,9 @@ For the AVR MCUs, I am using a "usbtiny" programmer, for example,
 pre-built hex image files to the "images" folder, there's no need to
 compile if you just want to program your MCU.
 
-*Note:* skip the `avr-gcc` and `avr-objcopy` steps if you just want to use the
-pre-compiled images.
+*Note:* skip the `avr-gcc` and `avr-objcopy` steps if you just want
+to use the precompiled images (only the `avrdude` command is needed
+to use precompiled images).
 
 - ATtiny85
 ```
@@ -81,11 +82,12 @@ Two source files constitute the core of the project:
 - `mcu-relay-controller.c`: this defines the main() function, and uses the
   interfaces defined in the above h file
 
-For each supported microcontroller, there is a corresponding .c and .h file in
-the `hardware-details` folder.
-
-The `images` folder has prebuild files, ready to be flashed to an
-MCU.
+Top level directories:
+- 'hardware-details`: contain a .c and .h file For each supported microcontroller
+- `images`: contains precompiled images, ready to be flashed to an
+  microcontroller
+- `pcb`: contains schematics, gerbers, and BOM files for relay
+  circuit boards
 
 
 ## Supported Hardware
