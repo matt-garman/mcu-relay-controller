@@ -75,7 +75,7 @@ avrdude -c usbtiny -p attiny13 -v -P usb -U flash:w:attiny13.hex
 
 Two source files constitute the core of the project:
 
-- `mcu-relay-controller-iface.h`: this defines teh hardware-abstracted
+- `mcu-relay-controller-iface.h`: this defines the hardware-abstracted
   interface for the project; it is essentially a high-level collection of
   hardware-independent functions (and macros) which can be used to build a
   microcontroller-driven relay circuit
