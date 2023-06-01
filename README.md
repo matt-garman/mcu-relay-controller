@@ -4,13 +4,13 @@
 
 ## Status
 
-Targeting June 4, 2023:
+May 31, 2023 - git tag "v0.1":
 
-- GitHub commit (TBD) has code that works reliably for ATtiny13A, ATtiny85
-- Prebuilt images for ATtiny13a/85 will be available soon - stay tuned!
+- git tag "v0.1" is a beta release for the ATtiny13A and ATtiny85
+- prebuilt images for ATtiny13a/85 now available
 - PCB v1.0, where the MCU directly drives the relay, is being used by my DIY
   pedals on my board (i.e. daily use)
-- PCB v1.0 schematic, Gerbers and KiCad files will be posted
+- PCB v1.0 schematic, gerbers and BOM now available
 
 Next Steps:
 
