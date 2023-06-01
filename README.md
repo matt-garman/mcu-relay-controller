@@ -83,7 +83,7 @@ Two source files constitute the core of the project:
   interfaces defined in the above h file
 
 Top level directories:
-- 'hardware-details`: contain a .c and .h file For each supported microcontroller
+- `hardware-details`: contain a .c and .h file For each supported microcontroller
 - `images`: contains precompiled images, ready to be flashed to an
   microcontroller
 - `pcb`: contains schematics, gerbers, and BOM files for relay
@@ -119,7 +119,9 @@ Currently supported relays (PCB v1.0):
 - Takamisawa AL5WN-K
 - Panasonic TQ2-L-5V
 
-Currently supported relays (PCB v1.0):
+In-progress supported relays (PCB v2.0):
+
+- Kemet EC2-3TNU
 
 
 ## Which MCU Should I Choose?
