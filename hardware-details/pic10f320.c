@@ -1,3 +1,6 @@
+// Copyright (c) Matthew Garman.  All rights reserved.
+// Licensed under the MIT License. See LICENSE in the project root for
+// license information.
 
 
 // pic10f320 pinout
@@ -60,8 +63,7 @@ void MRC_hardware_init(void)
     WPUA = 0b00001000; // enable weak pull-up register for WPUA3/RA3
     IOCAP = 0; // disable interrupt-on-change (IOC) PORTA positive edge resistors for all pins
     IOCAN = 0b00001000; // IOCAN3 (RA3) OC PORTA negative edge resistor
-    
-    //OSCCON = 0b00110000; // 1 MHz
+    OSCCON = 0b00110000; // OSCCON (oscillator control register), IRCF<2:0> 011 = 1 MHz
 }
 
 #define pic10f320_enable_interrupts() do { IOCAP=0; IOCAN=0b00001000; INTCON=0b10001000; } while(0)
