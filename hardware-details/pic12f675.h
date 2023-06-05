@@ -16,7 +16,12 @@
 #pragma config CP = OFF
 #pragma config CPD = OFF
 
-//#define _XTAL_FREQ 1000000
+// Does not appear to be possible to change the pic12f675's operating
+// frequency if using the internal oscillator; default internal oscillator
+// frequncy is 4MHz.
+// See Microchip Community Forum post "Changing operating frequency of
+// pic10f320 and pic12f675 using internal oscillator":
+// https://forum.microchip.com/s/topic/a5C3l000000BoWVEA0/t390718?comment=P-2919727
 #define _XTAL_FREQ 4000000
 
 
