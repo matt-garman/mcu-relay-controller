@@ -12,6 +12,11 @@ May 31, 2023 - git tag "v0.1":
   pedals on my board (i.e. daily use)
 - PCB v1.0 schematic, gerbers and BOM now available
 
+Jun 4, 2023:
+
+- HEX images added for PIC10F322 and PIC12F675 microcontrollers;
+  tested on breadboard
+
 Next Steps:
 
 - Wait on v2.0 of PCB (expected mid-June), with following changes:
@@ -19,7 +24,6 @@ Next Steps:
     - use double-coil Kemet EC2-3TNU latching relay
     - drive relay with transistors instead of MCU
     - include flyback protection diodes
-- Breadboard test of PIC10F322 and PIC12F675 MCUs
 - Order PCBs for PIC microcontrollers
 
 
@@ -69,6 +73,28 @@ avr-gcc -Os -std=gnu99 -DF_CPU=1000000UL -DIMPL_ATTINY -DATTINY13 -mmcu=attiny13
 avr-objcopy -j .text -j .data -O ihex attiny13.elf attiny13.hex
 avrdude -c usbtiny -p attiny13 -v -P usb -U flash:w:attiny13.hex
 ```
+
+- PIC10F325, PIC12F675: it does not appear to be possible to program
+  a PIC microcontroller from the commandline (as we can with AVR
+  microcontrollers and `avrdude`).  I used a PICKit3 programmer and
+  [MPLAB X](https://www.microchip.com/en-us/tools-resources/develop/mplab-x-ide)
+  to build and program this code for the PIC MCUs.  Other notes:
+  - This PICKit3 reference has a handy pinout diagram: [Components101: Pickit 3 Programmer/Debugger](https://components101.com/misc/pickit3-programmer-debugger-pinout-connections-datasheet)
+  - I would expect that it is possible to program the PICs directly
+    using the pre-made hex images provided here under MPLAB X;
+    however, I have not tried that, I always did a build and
+    compile.
+  - It should be reasonably easy to re-create the MPLAB X projects
+    from the source provided here, but *please read the comments at
+    the top of the device-specific source files*!  In particular,
+    the pic12f675 required some settings tweaks to program
+    successfully (at least for me).
+  - If you know an easy way to program the hex files directly
+    (without having to rebuild), either in MPLAB X or from the
+    commandline, please let me know and I'll update these docs!
+  - At some point in the future, I may add the MPLAB X project files
+    to this GitHub repo (although I'm holding out in hopes of a
+    simplified approach that looks more like `avrdude`).
 
 
 ## Code Repo Organization
