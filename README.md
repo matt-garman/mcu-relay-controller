@@ -250,6 +250,8 @@ questions/considerations therefore:
 8. Implement scheme for having guaranteed user-defined power-off state (e.g.
    device always reverts to bypass on power loss, maybe use MCU watchdog or
    brownout detector)
+9. Incorporate a tag or pin header connection for (re-)programming
+   the MCU in-circuit.
 
 
 ## Effect Pedal Bypass Manifesto
