@@ -24,6 +24,8 @@ Jun 10, 2023:
     - use double-coil Kemet EC2-3TNU latching relay
     - drive relay with transistors instead of MCU
     - include flyback protection diodes
+- Added PCB v2.0 Gerber files to GitHub repo (BOM and schematic
+  coming soon)
 
 Next Steps:
 
