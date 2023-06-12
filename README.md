@@ -17,14 +17,18 @@ Jun 4, 2023:
 - HEX images added for PIC10F322 and PIC12F675 microcontrollers;
   tested on breadboard
 
-Next Steps:
+Jun 10, 2023:
 
-- Wait on v2.0 of PCB (expected mid-June), with following changes:
+- Received and validated v2.0 of PCB, with following changes:
     - run at 3.3v (instead of 5.0v)
     - use double-coil Kemet EC2-3TNU latching relay
     - drive relay with transistors instead of MCU
     - include flyback protection diodes
-- Order PCBs for PIC microcontrollers
+
+Next Steps:
+
+- Design and order PCBs for PIC microcontrollers
+- Small (cosmetic only) tweaks to PCBs
 
 
 ## Project Overview
@@ -315,4 +319,5 @@ bad design; dedicated driver circuitry should go between MCU and relay.
 11. Thread I started on diyAudio: [Microcontroller-driven latching relay](https://www.diyaudio.com/community/threads/microcontroller-driven-latching-relay.399347/)
 12. [A Guide to Debouncing, or, How to Debounce a Contact in Two Easy Pages, by Jack Ganssle](http://www.ganssle.com/debouncing.htm)
 13. [Flyback Diodes and Relays](https://forum.pedalpcb.com/threads/flyback-diodes-and-relays.3576/post-28437) - Chuck D Bones on PedalPCB forum showing that directly driving a relay coil from an ATtiny is probably ok
+14. Silver Blues - [A Guide to Soft-Latch Relay Bypass](http://guitar-fx-layouts.238.s1.nabble.com/A-Guide-to-Soft-Latch-Relay-Bypass-td35603.html)
 
