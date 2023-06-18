@@ -15,8 +15,8 @@
 // Pin assignment:
 //    pin1 => n/c
 //    pin2 => +5v
-//    pin3/RA2 => one side of relay coil
-//    pin4/RA1 => other side of relay coil
+//    pin3/RA2 => relay coil pin1 (goes high for set/activate)
+//    pin4/RA1 => relay coil pin2 (goes high for reset/deactivate)
 //    pin5/RA0 => to gate of NPN which closes LED cathode to GND
 //    pin6 => n/c
 //    pin7 => GND
