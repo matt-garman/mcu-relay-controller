@@ -26,10 +26,18 @@ Jun 10, 2023:
     - include flyback protection diodes
 - Added PCB v2.0 Gerber files, BOM and schematic to GitHub repo
 
-Next Steps:
+In-Progress:
 
-- Design and order PCBs for PIC microcontrollers
-- Small (cosmetic only) tweaks to PCBs
+- v0.1 MCU code still working reliably for me
+- Sent out v1.0 and v2.0 boards to three friendly volunteers who
+  will help test!
+- Working on v3.0 board, which features:
+    - Combined TQ2 and EC2 footprint for using either Kemet EC2 or
+      Pansonic TQ2 relay
+    - Added a board power wire point for use with AionFX PCBs
+    - Silkscreen cosmetic improvements
+    - Using four layer board (too hard to route otherwise!)
+    - Initially will support pic10f320 MCU (others will follow)
 
 
 ## Project Overview
@@ -147,12 +155,13 @@ code:
 
 Currently supported relays (PCB v1.0):
 
-- Takamisawa AL5WN-K
-- Panasonic TQ2-L-5V
+- Takamisawa AL5WN-K (PCB v1.0)
+- Panasonic TQ2-L-5V (PCB v1.0)
+- Kemet EC2-3TNU (PCB v2.0)
 
-In-progress supported relays (PCB v2.0):
+In-progress supported relays:
 
-- Kemet EC2-3TNU
+- Panasonic TQ2-2L-3V (PCB v3.0)
 
 
 ## Which MCU Should I Choose?
