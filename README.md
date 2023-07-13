@@ -61,6 +61,34 @@ LMC555, TLC555, TS555, but these are still relatively high-current compared to
 an MCU in sleep mode.)
 
 
+## PCB Versions
+
+I have made a number of PCB board versions:
+- **[v1.0](https://github.com/matt-garman/mcu-relay-controller/tree/main/pcb/attiny_v1.0)**
+    - MCU: ATtiny13, ATtiny85
+    - Relay: Takamisawa AL5WN-K, Panasonic TQ2-L-5V (single coil)
+    - Operating Voltage: 5v
+    - Features:
+        - simplest/smallest PCB
+        - direct drive of relay from MCU
+- **[v2.0](https://github.com/matt-garman/mcu-relay-controller/tree/main/pcb/attiny_v2.0)**
+    - MCU: ATtiny13, ATtiny85
+    - Relay: Kemet EC2-3TNU (double coil)
+    - Operating Voltage: 3.3v
+    - Features:
+        - transistor-driven relay with flyback protection
+- **[v3.0](https://github.com/matt-garman/mcu-relay-controller/tree/main/pcb/pic10f32x_v3.0)**
+    - MCU: pic10f320, pic10f322
+    - Relay: Kemet EC2-3TNU **or** Panasonic TQ2-L2-3V (double coil)
+    - Operating Voltage: 3.3v
+    - Features:
+        - transistor-driven relay with flyback protection
+        - PCB supports two different relay footprints
+        - added reverse polarity protected and capacitor-filtered
+          board power solder hole for use with AionFX PCBs
+        - cosmetic silkscreen improvements
+
+
 ## Building and Programming
 
 For the AVR MCUs, I am using a "usbtiny" programmer, for example,
@@ -330,4 +358,5 @@ bad design; dedicated driver circuitry should go between MCU and relay.
 12. [A Guide to Debouncing, or, How to Debounce a Contact in Two Easy Pages, by Jack Ganssle](http://www.ganssle.com/debouncing.htm)
 13. [Flyback Diodes and Relays](https://forum.pedalpcb.com/threads/flyback-diodes-and-relays.3576/post-28437) - Chuck D Bones on PedalPCB forum showing that directly driving a relay coil from an ATtiny is probably ok
 14. Silver Blues - [A Guide to Soft-Latch Relay Bypass](http://guitar-fx-layouts.238.s1.nabble.com/A-Guide-to-Soft-Latch-Relay-Bypass-td35603.html)
+15. Electronic Engineering Journal - [Ultimate Guide to Switch Debounce](https://www.eejournal.com/article/ultimate-guide-to-switch-debounce-part-1/) by Max Maxfield (*Nine*-part series!)
 
