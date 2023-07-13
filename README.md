@@ -2,7 +2,11 @@
 # README
 
 
-## Status
+- [Status](#status)
+- [Project Overview](#project-overview)
+
+
+## <a name="status"></a>Status
 
 May 31, 2023 - git tag "v0.1":
 
@@ -40,7 +44,7 @@ In-Progress:
     - Initially will support pic10f320 MCU (others will follow)
 
 
-## Project Overview
+## <a name="project-overview"></a>Project Overview
 
 mcu-relay-bypass is intended to be a very simple framework and reference
 implementation of suitable code for programming microcontrollers to respond to
@@ -185,11 +189,18 @@ Currently supported relays (PCB v1.0):
 
 - Takamisawa AL5WN-K (PCB v1.0)
 - Panasonic TQ2-L-5V (PCB v1.0)
-- Kemet EC2-3TNU (PCB v2.0)
+- Kemet EC2-3TNU (PCB v2.0, PCB v3.0)
 
 In-progress supported relays:
 
 - Panasonic TQ2-2L-3V (PCB v3.0)
+
+Coils to test:
+
+- [Hongfa HFD2/003-S-L2](https://www.shc-gmbh.com/pdf/HFD2_en.pdf)
+- Kemet EA2-3TNU
+- Axicom/TE Connectivity V23079
+- Omron G6SK-2F DC3
 
 
 ## Which MCU Should I Choose?
