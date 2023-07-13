@@ -4,6 +4,16 @@
 
 - [Status](#status)
 - [Project Overview](#project-overview)
+- [PCB Versions](#pcb-versions)
+- [Building and Programming](#building-and-programming)
+- [Code Repo Organization](#code-repo-organization)
+- [Supported Hardware](#supported-hardware)
+- [Which MCU Should I Choose?](#which-mcu-should-i-choose)
+- [Program Concept](#program-concept)
+- [Implementation Considerations](#implementation-considerations)
+- [Future Goals](#future-goals)
+- [Effect Pedal Bypass Manifesto](#manifesto)
+- [Credits, Links, and Inspiration](#credits-and-links)
 
 
 ## <a name="status"></a>Status
@@ -65,7 +75,7 @@ LMC555, TLC555, TS555, but these are still relatively high-current compared to
 an MCU in sleep mode.)
 
 
-## PCB Versions
+## <a name="pcb-versions"></a>PCB Versions
 
 I have made a number of PCB board versions:
 - **[v1.0](https://github.com/matt-garman/mcu-relay-controller/tree/main/pcb/attiny_v1.0)**
@@ -93,7 +103,7 @@ I have made a number of PCB board versions:
         - cosmetic silkscreen improvements
 
 
-## Building and Programming
+## <a name="building-and-programming"></a>Building and Programming
 
 For the AVR MCUs, I am using a "usbtiny" programmer, for example,
 [PGM-11801](https://www.sparkfun.com/products/11801).  I have added
@@ -142,7 +152,7 @@ avrdude -c usbtiny -p attiny13 -v -P usb -U flash:w:attiny13.hex
     simplified approach that looks more like `avrdude`).
 
 
-## Code Repo Organization
+## <a name="code-repo-organization"></a>Code Repo Organization
 
 Two source files constitute the core of the project:
 
@@ -161,7 +171,7 @@ Top level directories:
   circuit boards
 
 
-## Supported Hardware
+## <a name="supported-hardware"></a>Supported Hardware
 
 Currently the project has, as a starting point, basic relay bypass
 implementations for a few microcontrollers.  These compile, and work
@@ -203,7 +213,7 @@ Coils to test:
 - Omron G6SK-2F DC3
 
 
-## Which MCU Should I Choose?
+## <a name="which-mcu-should-i-choose"></a>Which MCU Should I Choose?
 
 As always, "it depends".  Ultimately, for this particular application, it
 doesn't really matter, because the program is so simple.  Obviously, if you
@@ -229,7 +239,7 @@ ATtiny family because:
   and enthusiasm)
 
 
-## Program Concept
+## <a name="program-concept"></a>Program Concept
 
 While there are many examples of using an MCU to drive a relay, I was unable
 to find any examples that took power consumption into consideration.  With low
@@ -265,7 +275,7 @@ In practice, the actual code almost matches the pseudocode 1:1, and (without
 comments) is shorter than this README!
 
 
-## Implementation Considerations
+## <a name="implementation-considerations"></a>Implementation Considerations
 
 In addition to low-power consumption, another primary goal of this project is
 a *simple*, plug-and-play implementation.  The goal is to be as simple as
@@ -288,7 +298,7 @@ questions/considerations therefore:
    decoupled from the MCU.
 
 
-## Future Goals
+## <a name="future-goals"></a>Future Goals
 
 1. Verified predictability and reliabilty from extensive field-testing
 2. Peer-review of the code base
@@ -307,7 +317,7 @@ questions/considerations therefore:
    the MCU in-circuit.
 
 
-## Effect Pedal Bypass Manifesto
+## <a name="manifesto"></a>Effect Pedal Bypass Manifesto
 
 In my opinion, the following is a list of requirements for an effect pedal
 bypass switching scheme:
@@ -329,7 +339,7 @@ bypass switching scheme:
     all components should be used within their design tolerances
 
 
-## Credits and Inspiration
+## <a name="credits-and-links"></a>Credits, Links, and Inspiration
 
 1. My favorite guitar effect PCB suppliers, for providing great PCBs and
    fostering my continued love of DIY electronics:
