@@ -18,40 +18,16 @@
 
 ## <a name="status"></a>Status
 
-May 31, 2023 - git tag "v0.1":
-
-- git tag "v0.1" is a beta release for the ATtiny13A and ATtiny85
-- prebuilt images for ATtiny13a/85 now available
-- PCB v1.0, where the MCU directly drives the relay, is being used by my DIY
-  pedals on my board (i.e. daily use)
-- PCB v1.0 schematic, gerbers and BOM now available
-
-Jun 4, 2023:
-
-- HEX images added for PIC10F322 and PIC12F675 microcontrollers;
-  tested on breadboard
-
-Jun 10, 2023:
-
-- Received and validated v2.0 of PCB, with following changes:
-    - run at 3.3v (instead of 5.0v)
-    - use double-coil Kemet EC2-3TNU latching relay
-    - drive relay with transistors instead of MCU
-    - include flyback protection diodes
-- Added PCB v2.0 Gerber files, BOM and schematic to GitHub repo
-
-In-Progress:
-
-- v0.1 MCU code still working reliably for me
-- Sent out v1.0 and v2.0 boards to three friendly volunteers who
+July 10, 2023:
+- git tag "v0.1" is a beta release for the ATtiny13A/ATtiny85 code
+  and PCB v1.0 (May 31, 2023)
+- hex images added to git repo for PIC10F320 and PIC12F675
+  microcontrollers; tested on breadboard
+- validated v2.0 of PCB (see [PCB Versions](#pcb-versions))
+- as of July 13, 2023: v0.1 MCU code still working reliably for me
+- sent out v1.0 and v2.0 boards to three friendly volunteers who
   will help test!
-- Working on v3.0 board, which features:
-    - Combined TQ2 and EC2 footprint for using either Kemet EC2 or
-      Pansonic TQ2 relay
-    - Added a board power wire point for use with AionFX PCBs
-    - Silkscreen cosmetic improvements
-    - Using four layer board (too hard to route otherwise!)
-    - Initially will support pic10f320 MCU (others will follow)
+- v3.0 board received, building and testing (see [PCB Versions](#pcb-versions))
 
 
 ## <a name="project-overview"></a>Project Overview
@@ -195,7 +171,7 @@ code:
   converter
 - PIC12F508, PIC12F609 - other possible alternatives to PIC12F675
 
-Currently supported relays (PCB v1.0):
+Currently supported relays:
 
 - Takamisawa AL5WN-K (PCB v1.0)
 - Panasonic TQ2-L-5V (PCB v1.0)
@@ -304,17 +280,16 @@ questions/considerations therefore:
 2. Peer-review of the code base
 3. Add support for muting during relay state transition (see BYOC relay bypass
    or [this post](https://www.diystompboxes.com/smfforum/index.php?topic=118021.msg1263909#msg1263909))
-4. Add support for two-coil relays (note this allows for simpler de-coupling
-   of MCU and relay; see BYOC relay bypass)
-5. Add support for non-latching relays
-6. Generalize PCB with jumpers to be MCU agnostic
-7. Add support for fancier UI features, such as momentary-on, double-tap
+4. Add support for non-latching relays
+5. Generalize PCB with jumpers to be MCU agnostic
+6. Add support for fancier UI features, such as momentary-on, double-tap
    support, etc
-8. Implement scheme for having guaranteed user-defined power-off state (e.g.
+7. Implement scheme for having guaranteed user-defined power-off state (e.g.
    device always reverts to bypass on power loss, maybe use MCU watchdog or
    brownout detector)
-9. Incorporate a tag or pin header connection for (re-)programming
+8. Incorporate a tag or pin header connection for (re-)programming
    the MCU in-circuit.
+9. Test and validate additional relays
 
 
 ## <a name="manifesto"></a>Effect Pedal Bypass Manifesto
