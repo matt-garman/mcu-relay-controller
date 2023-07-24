@@ -13,21 +13,22 @@
 - [Implementation Considerations](#implementation-considerations)
 - [Future Goals](#future-goals)
 - [Effect Pedal Bypass Manifesto](#manifesto)
+- [Builds Using mcu-relay-controller](#build-reports)
 - [Credits, Links, and Inspiration](#credits-and-links)
 
 
 ## <a name="status"></a>Status
 
-July 10, 2023:
+July 24, 2023:
 - git tag "v0.1" is a beta release for the ATtiny13A/ATtiny85 code
   and PCB v1.0 (May 31, 2023)
-- hex images added to git repo for PIC10F320 and PIC12F675
-  microcontrollers; tested on breadboard
+- hex images added to git repo for PIC10F320, PCB10F322 and PIC12F675
+  microcontrollers
 - validated v2.0 of PCB (see [PCB Versions](#pcb-versions))
+- validated v3.0 of PCB (see [PCB Versions](#pcb-versions))
 - as of July 13, 2023: v0.1 MCU code still working reliably for me
 - sent out v1.0 and v2.0 boards to three friendly volunteers who
   will help test!
-- v3.0 board received, building and testing (see [PCB Versions](#pcb-versions))
 
 
 ## <a name="project-overview"></a>Project Overview
@@ -105,7 +106,7 @@ avr-objcopy -j .text -j .data -O ihex attiny13.elf attiny13.hex
 avrdude -c usbtiny -p attiny13 -v -P usb -U flash:w:attiny13.hex
 ```
 
-- PIC10F325, PIC12F675: it does not appear to be possible to program
+- PIC10F32x, PIC12F675: it does not appear to be possible to program
   a PIC microcontroller from the commandline (as we can with AVR
   microcontrollers and `avrdude`).  I used a PICKit3 programmer and
   [MPLAB X](https://www.microchip.com/en-us/tools-resources/develop/mplab-x-ide)
@@ -159,6 +160,7 @@ Currently supported microcontrollers:
 - ATmel ATTiny13A
 - Microchip PIC12F675
 - Microchip PIC10320
+- Microchip PIC10322
 
 Microcontrollers that *probably* work with little-to-no modification of the
 code:
@@ -166,7 +168,6 @@ code:
 - ATTiny13 - appears to be same as ATTiny13 but older manufacturing
   process
 - ATTiny45 - appears to be same as ATTiny85 but with less memory
-- PIC10F322 - essentially same as 10F320
 - PIC12F629 - appears to be same as PIC12F675 but without 10-bit A/D
   converter
 - PIC12F508, PIC12F609 - other possible alternatives to PIC12F675
@@ -181,7 +182,7 @@ In-progress supported relays:
 
 - Panasonic TQ2-2L-3V (PCB v3.0)
 
-Coils to test:
+Relays to test:
 
 - [Hongfa HFD2/003-S-L2](https://www.shc-gmbh.com/pdf/HFD2_en.pdf)
 - Kemet EA2-3TNU
@@ -312,6 +313,17 @@ bypass switching scheme:
 12. Uses engineering best practices: no exploiting of undefined
     behavior, all logic and operation should be deterministic,
     all components should be used within their design tolerances
+
+
+
+## <a name="build-reports"></a>Builds Using mcu-relay-controller
+
+1. [PedalPCB Mystery Meat](https://forum.pedalpcb.com/threads/mystery-meat-prs-horsemeat.18159/) - PCB v3.0
+2. [PedalPCB Pro-10 Blue](https://forum.pedalpcb.com/threads/pro-10-blue-browne-protein-blue.18158/) - PCB v3.0
+3. [AionFX Heliodor](https://forum.pedalpcb.com/threads/aion-heliodor-boss-od-3.18088/) - PCB v3.0
+4. [PedalPCB Celestial Drive](https://forum.pedalpcb.com/threads/celestial-drive-dmb-stellar-drive.18086/) - PCB v3.0
+5. [PedalPCB Pauper](https://forum.pedalpcb.com/threads/pauper-prince-of-tone.17559/) - PCB v2.0
+
 
 
 ## <a name="credits-and-links"></a>Credits, Links, and Inspiration
