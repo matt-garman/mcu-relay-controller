@@ -19,16 +19,19 @@
 
 ## <a name="status"></a>Status
 
-July 24, 2023:
+Aug 24, 2023:
+- git tag "v0.2" is a beta release for all MCU code and PCBs
+  v1/v2/v3 (Aug 24, 2023)
 - git tag "v0.1" is a beta release for the ATtiny13A/ATtiny85 code
   and PCB v1.0 (May 31, 2023)
 - hex images added to git repo for PIC10F320, PCB10F322 and PIC12F675
   microcontrollers
 - validated v2.0 of PCB (see [PCB Versions](#pcb-versions))
 - validated v3.0 of PCB (see [PCB Versions](#pcb-versions))
-- as of July 13, 2023: v0.1 MCU code still working reliably for me
-- sent out v1.0 and v2.0 boards to three friendly volunteers who
-  will help test!
+- as of Aug 24, 2023: v0.1/v0.2 MCU code still working reliably for
+  me
+- sent out v1/v2/v3 boards to three friendly volunteers who will
+  help test; one volunteer already reported success!
 
 
 ## <a name="project-overview"></a>Project Overview
@@ -177,9 +180,6 @@ Currently supported relays:
 - Takamisawa AL5WN-K (PCB v1.0)
 - Panasonic TQ2-L-5V (PCB v1.0)
 - Kemet EC2-3TNU (PCB v2.0, PCB v3.0)
-
-In-progress supported relays:
-
 - Panasonic TQ2-2L-3V (PCB v3.0)
 
 Relays to test:
@@ -367,4 +367,7 @@ bad design; dedicated driver circuitry should go between MCU and relay.
 13. [Flyback Diodes and Relays](https://forum.pedalpcb.com/threads/flyback-diodes-and-relays.3576/post-28437) - Chuck D Bones on PedalPCB forum showing that directly driving a relay coil from an ATtiny is probably ok
 14. Silver Blues - [A Guide to Soft-Latch Relay Bypass](http://guitar-fx-layouts.238.s1.nabble.com/A-Guide-to-Soft-Latch-Relay-Bypass-td35603.html)
 15. Electronic Engineering Journal - [Ultimate Guide to Switch Debounce](https://www.eejournal.com/article/ultimate-guide-to-switch-debounce-part-1/) by Max Maxfield (*Nine*-part series!)
-
+16. Embed with Elliot: Debounce Your Noisy Buttons
+    - [Part I](https://hackaday.com/2015/12/09/embed-with-elliot-debounce-your-noisy-buttons-part-i/)
+    - [Part II](https://hackaday.com/2015/12/10/embed-with-elliot-debounce-your-noisy-buttons-part-ii/)
+17. [Debounce Code - One Post to Rule them All](https://hackaday.com/2010/11/09/debounce-code-one-post-to-rule-them-all/) by Mike Szczys
