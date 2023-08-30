@@ -323,6 +323,7 @@ bypass switching scheme:
 3. [AionFX Heliodor](https://forum.pedalpcb.com/threads/aion-heliodor-boss-od-3.18088/) - PCB v3.0
 4. [PedalPCB Celestial Drive](https://forum.pedalpcb.com/threads/celestial-drive-dmb-stellar-drive.18086/) - PCB v3.0
 5. [PedalPCB Pauper](https://forum.pedalpcb.com/threads/pauper-prince-of-tone.17559/) - PCB v2.0
+6. [PedalPCB Guardian](https://forum.pedalpcb.com/threads/guardian-od-thorpy-peacekeeper.18611/) - PCB v3.0
 
 
 
