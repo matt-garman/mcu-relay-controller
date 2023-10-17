@@ -31,7 +31,7 @@ Oct 17, 2023:
   microcontrollers
 - validated v2.0 of PCB (see [PCB Versions](#pcb-versions))
 - validated v3.0 of PCB (see [PCB Versions](#pcb-versions))
-- as of Aug 24, 2023: v0.1/v0.2 MCU code still working reliably for
+- as of Oct 17, 2023: v0.1/v0.2 MCU code still working reliably for
   me
 - sent out v1/v2/v3 boards to three friendly volunteers who will
   help test; one volunteer already reported success!
