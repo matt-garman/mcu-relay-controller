@@ -19,7 +19,10 @@
 
 ## <a name="status"></a>Status
 
-Aug 24, 2023:
+Oct 17, 2023:
+- submitted PCB v1.1 for fabrication: this is a cleanup of v1.0,
+  primarly cosmetic changes, *slightly* smaller, and adds a board
+  power connection for use with AionFX effects
 - git tag "v0.2" is a beta release for all MCU code and PCBs
   v1/v2/v3 (Aug 24, 2023)
 - git tag "v0.1" is a beta release for the ATtiny13A/ATtiny85 code
@@ -65,6 +68,13 @@ I have made a number of PCB board versions:
     - Features:
         - simplest/smallest PCB
         - direct drive of relay from MCU
+- v1.1: same concept as v1.0, with minor updates:
+    - *slightly* smaller PCB
+    - added reverse polarity protected and capacitor-filtered board
+      power solder hole for use with AionFX PCBs
+    - cosmetic improvements
+    - right-sized solder holes
+    - Oct 17, 2023: Gerbers submitted for fabrication
 - **[v2.0](https://github.com/matt-garman/mcu-relay-controller/tree/main/pcb/attiny_v2.0)**
     - MCU: ATtiny13, ATtiny85
     - Relay: Kemet EC2-3TNU (double coil)
@@ -318,12 +328,16 @@ bypass switching scheme:
 
 ## <a name="build-reports"></a>Builds Using mcu-relay-controller
 
-1. [PedalPCB Mystery Meat](https://forum.pedalpcb.com/threads/mystery-meat-prs-horsemeat.18159/) - PCB v3.0
-2. [PedalPCB Pro-10 Blue](https://forum.pedalpcb.com/threads/pro-10-blue-browne-protein-blue.18158/) - PCB v3.0
-3. [AionFX Heliodor](https://forum.pedalpcb.com/threads/aion-heliodor-boss-od-3.18088/) - PCB v3.0
-4. [PedalPCB Celestial Drive](https://forum.pedalpcb.com/threads/celestial-drive-dmb-stellar-drive.18086/) - PCB v3.0
-5. [PedalPCB Pauper](https://forum.pedalpcb.com/threads/pauper-prince-of-tone.17559/) - PCB v2.0
-6. [PedalPCB Guardian](https://forum.pedalpcb.com/threads/guardian-od-thorpy-peacekeeper.18611/) - PCB v3.0
+1.  [PedalPCB Mystery Meat](https://forum.pedalpcb.com/threads/mystery-meat-prs-horsemeat.18159/) - PCB v3.0
+2.  [PedalPCB Pro-10 Blue](https://forum.pedalpcb.com/threads/pro-10-blue-browne-protein-blue.18158/) - PCB v3.0
+3.  [AionFX Heliodor](https://forum.pedalpcb.com/threads/aion-heliodor-boss-od-3.18088/) - PCB v3.0
+4.  [PedalPCB Celestial Drive](https://forum.pedalpcb.com/threads/celestial-drive-dmb-stellar-drive.18086/) - PCB v3.0
+5.  [PedalPCB Pauper](https://forum.pedalpcb.com/threads/pauper-prince-of-tone.17559/) - PCB v2.0
+6.  [PedalPCB Guardian](https://forum.pedalpcb.com/threads/guardian-od-thorpy-peacekeeper.18611/) - PCB v3.0
+7.  [PedalPCB Tommy III](https://forum.pedalpcb.com/threads/tommy-iii-timmy-v3.18648/) - PCB v3.0
+8.  [PedalPCB Sandspur](https://forum.pedalpcb.com/threads/sandspur-analogman-sunface.19048/) - PCB v1.0 (crammed in a 1590B)
+9.  [PedalPCB Mojito Deluxe](https://forum.pedalpcb.com/threads/mojito-deluxe-overdrive-boneyard-edition.19050/) - PCB v3.0
+10. [PedalPCB Red Herring](https://forum.pedalpcb.com/threads/red-herring-menatone-red-snapper.19051/) - PCB v3.0 (crammed in a 1590B)
 
 
 
