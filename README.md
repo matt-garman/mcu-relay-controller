@@ -19,10 +19,11 @@
 
 ## <a name="status"></a>Status
 
-Oct 17, 2023:
+Jan 3, 2024
+- validated v5.0 of PCB (see [PCB Versions](#pcb-versions))
 - submitted PCB v1.1 for fabrication: this is a cleanup of v1.0,
   primarly cosmetic changes, *slightly* smaller, and adds a board
-  power connection for use with AionFX effects
+  power connection for use with (some) AionFX effects
 - git tag "v0.2" is a beta release for all MCU code and PCBs
   v1/v2/v3 (Aug 24, 2023)
 - git tag "v0.1" is a beta release for the ATtiny13A/ATtiny85 code
@@ -66,12 +67,12 @@ I have made a number of PCB board versions:
     - Relay: Takamisawa AL5WN-K, Panasonic TQ2-L-5V (single coil)
     - Operating Voltage: 5v
     - Features:
-        - simplest/smallest PCB
+        - simplest/smallest through-hole PCB
         - direct drive of relay from MCU
 - v1.1: same concept as v1.0, with minor updates:
     - *slightly* smaller PCB
     - added reverse polarity protected and capacitor-filtered board
-      power solder hole for use with AionFX PCBs
+      power solder hole for use with (some) AionFX PCBs
     - cosmetic improvements
     - right-sized solder holes
     - Oct 17, 2023: Gerbers submitted for fabrication
@@ -89,8 +90,18 @@ I have made a number of PCB board versions:
         - transistor-driven relay with flyback protection
         - PCB supports two different relay footprints
         - added reverse polarity protected and capacitor-filtered
-          board power solder hole for use with AionFX PCBs
+          board power solder hole for use with (some) AionFX PCBs
         - cosmetic silkscreen improvements
+- **[v5.x](https://github.com/matt-garman/mcu-relay-controller/tree/main/pcb/attiny_smd_v5.x)**
+    - MCU: ATtiny13, ATtiny85
+    - Relay: Kemet EC2-3TNU **or** Panasonic TQ2-L2-3V (double coil)
+    - Operating Voltage: 3.3v
+    - Versions 5.0 and 5.1 are identical *except* for the 3v3
+      regulator
+    - Features:
+        - transistor-driven relay with flyback protection
+        - PCB supports two different relay footprints
+        - Surface mount (SMD) verstion, for compact size
 
 
 ## <a name="building-and-programming"></a>Building and Programming
@@ -338,6 +349,8 @@ bypass switching scheme:
 8.  [PedalPCB Sandspur](https://forum.pedalpcb.com/threads/sandspur-analogman-sunface.19048/) - PCB v1.0 (crammed in a 1590B)
 9.  [PedalPCB Mojito Deluxe](https://forum.pedalpcb.com/threads/mojito-deluxe-overdrive-boneyard-edition.19050/) - PCB v3.0
 10. [PedalPCB Red Herring](https://forum.pedalpcb.com/threads/red-herring-menatone-red-snapper.19051/) - PCB v3.0 (crammed in a 1590B)
+11. [PedalPCB Mach 1](https://forum.pedalpcb.com/threads/mach-1-greer-lightspeed.19207/) - PCB v???
+12. [PedalPCB Powersound Overdriver](https://forum.pedalpcb.com/threads/powersound-overdrive-colorsound-overdriver.19748/) - PCB v2.0
 
 
 
