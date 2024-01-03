@@ -69,7 +69,7 @@ I have made a number of PCB board versions:
     - Features:
         - simplest/smallest through-hole PCB
         - direct drive of relay from MCU
-- v1.1: same concept as v1.0, with minor updates:
+- [v1.1](https://github.com/matt-garman/mcu-relay-controller/tree/main/pcb/attiny_v1.1): same concept as v1.0, with minor updates:
     - *slightly* smaller PCB
     - added reverse polarity protected and capacitor-filtered board
       power solder hole for use with (some) AionFX PCBs
