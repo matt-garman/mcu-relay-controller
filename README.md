@@ -19,7 +19,8 @@
 
 ## <a name="status"></a>Status
 
-Jan 3, 2024
+Jan 15, 2024
+- validated v5.1 of PCB (see [PCB Versions](#pcb-versions))
 - validated v5.0 of PCB (see [PCB Versions](#pcb-versions))
 - submitted PCB v1.1 for fabrication: this is a cleanup of v1.0,
   primarly cosmetic changes, *slightly* smaller, and adds a board
