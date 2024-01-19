@@ -352,6 +352,7 @@ bypass switching scheme:
 10. [PedalPCB Red Herring](https://forum.pedalpcb.com/threads/red-herring-menatone-red-snapper.19051/) - PCB v3.0 (crammed in a 1590B)
 11. [PedalPCB Mach 1](https://forum.pedalpcb.com/threads/mach-1-greer-lightspeed.19207/) - PCB v???
 12. [PedalPCB Powersound Overdriver](https://forum.pedalpcb.com/threads/powersound-overdrive-colorsound-overdriver.19748/) - PCB v2.0
+13. [PedalPCB Byzantium](https://forum.pedalpcb.com/threads/two-byzantium-flangers-boss-bf-2.20513/) - PCB v5.1
 
 
 
