@@ -19,7 +19,8 @@
 
 ## <a name="status"></a>Status
 
-Jan 15, 2024
+Jan 23, 2024
+- validated v1.1 of PCB (see [PCB Versions](#pcb-versions))
 - validated v5.1 of PCB (see [PCB Versions](#pcb-versions))
 - validated v5.0 of PCB (see [PCB Versions](#pcb-versions))
 - submitted PCB v1.1 for fabrication: this is a cleanup of v1.0,
@@ -63,20 +64,20 @@ an MCU in sleep mode.)
 ## <a name="pcb-versions"></a>PCB Versions
 
 I have made a number of PCB board versions:
-- **[v1.0](https://github.com/matt-garman/mcu-relay-controller/tree/main/pcb/attiny_v1.0)**
+- [v1.0](https://github.com/matt-garman/mcu-relay-controller/tree/main/pcb/attiny_v1.0)
     - MCU: ATtiny13, ATtiny85
     - Relay: Takamisawa AL5WN-K, Panasonic TQ2-L-5V (single coil)
     - Operating Voltage: 5v
+    - Superceded by v1.1
     - Features:
         - simplest/smallest through-hole PCB
         - direct drive of relay from MCU
-- [v1.1](https://github.com/matt-garman/mcu-relay-controller/tree/main/pcb/attiny_v1.1): same concept as v1.0, with minor updates:
+- **[v1.1](https://github.com/matt-garman/mcu-relay-controller/tree/main/pcb/attiny_v1.1)**: same concept as v1.0, with minor updates
     - *slightly* smaller PCB
     - added reverse polarity protected and capacitor-filtered board
       power solder hole for use with (some) AionFX PCBs
     - cosmetic improvements
     - right-sized solder holes
-    - Oct 17, 2023: Gerbers submitted for fabrication
 - **[v2.0](https://github.com/matt-garman/mcu-relay-controller/tree/main/pcb/attiny_v2.0)**
     - MCU: ATtiny13, ATtiny85
     - Relay: Kemet EC2-3TNU (double coil)
@@ -353,6 +354,8 @@ bypass switching scheme:
 11. [PedalPCB Mach 1](https://forum.pedalpcb.com/threads/mach-1-greer-lightspeed.19207/) - PCB v???
 12. [PedalPCB Powersound Overdriver](https://forum.pedalpcb.com/threads/powersound-overdrive-colorsound-overdriver.19748/) - PCB v2.0
 13. [PedalPCB Byzantium](https://forum.pedalpcb.com/threads/two-byzantium-flangers-boss-bf-2.20513/) - PCB v5.1
+14. [PedalPCB Seabed Delay](https://forum.pedalpcb.com/threads/pedalpcb-seabed-delay-mad-professor-deep-blue-delay.20596/) - PCB v5.1
+15. [AionFX Tachyon](https://forum.pedalpcb.com/threads/aionfx-tachyon-boss-sd-2-lead-mode.20597/) - PCB v5.1
 
 
 
