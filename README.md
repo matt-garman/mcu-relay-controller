@@ -132,6 +132,28 @@ avr-objcopy -j .text -j .data -O ihex attiny13.elf attiny13.hex
 avrdude -c usbtiny -p attiny13 -v -P usb -U flash:w:attiny13.hex
 ```
 
+Update: I found I had a USBASP ATtiny programmer that I purchased
+many years ago.  It appears to be a "51 AVR USB ISP ASP Atmega
+programmer".  [Here is one document](https://pdf.direnc.net/upload/show.pdf)
+I found for it.  Initially, I kept getting errors similar to this
+when trying to use it with `avrdude`:
+
+```
+avrdude: error: could not find USB device with vid=0x16c0 pid=0x5dc vendor='www.fischl.de' product='USBasp'
+```
+
+I found some hints here:
+[AVRDUDE does not recognize USBasp device](https://electronics.stackexchange.com/questions/416714/avrdude-does-not-recognize-usbasp-device).
+Specifically, I had to download and install the
+[Zadig](https://zadig.akeo.ie/) program, which allows you to
+explicitly assign specific drivers to USB devices (rather than let
+Windows decide for you).  If I remember correctly, I had to use
+"libusb-win32" with the USBasp device to get it to work with
+`avrdude`.
+
+
+Notes on programming PIC microcontrollers:
+
 - PIC10F32x, PIC12F675: it does not appear to be possible to program
   a PIC microcontroller from the commandline (as we can with AVR
   microcontrollers and `avrdude`).  I used a PICKit3 programmer and
@@ -356,6 +378,7 @@ bypass switching scheme:
 13. [PedalPCB Byzantium](https://forum.pedalpcb.com/threads/two-byzantium-flangers-boss-bf-2.20513/) - PCB v5.1
 14. [PedalPCB Seabed Delay](https://forum.pedalpcb.com/threads/pedalpcb-seabed-delay-mad-professor-deep-blue-delay.20596/) - PCB v5.1
 15. [AionFX Tachyon](https://forum.pedalpcb.com/threads/aionfx-tachyon-boss-sd-2-lead-mode.20597/) - PCB v5.1
+16. [Madbean Blue Steel](https://forum.pedalpcb.com/threads/madbean-blue-steel-boss-bd-2.18225/) - PCB v3.0
 
 
 
