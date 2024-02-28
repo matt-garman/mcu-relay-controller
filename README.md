@@ -379,6 +379,8 @@ bypass switching scheme:
 14. [PedalPCB Seabed Delay](https://forum.pedalpcb.com/threads/pedalpcb-seabed-delay-mad-professor-deep-blue-delay.20596/) - PCB v5.1
 15. [AionFX Tachyon](https://forum.pedalpcb.com/threads/aionfx-tachyon-boss-sd-2-lead-mode.20597/) - PCB v5.1
 16. [Madbean Blue Steel](https://forum.pedalpcb.com/threads/madbean-blue-steel-boss-bd-2.18225/) - PCB v3.0
+17. [PedalPCB Byzantium](https://forum.pedalpcb.com/threads/two-byzantium-flangers-boss-bf-2.20513/) - PCB v5.x
+18. [Custom Colorsound Power Boost](https://forum.pedalpcb.com/threads/yet-another-colorsound-power-booster.20285/) - Integrated into effect PCB
 
 
 
