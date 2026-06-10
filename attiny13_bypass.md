@@ -9,6 +9,7 @@
     - avrtools - mature, fully-featured free/open-source tooling
     - Low power in sleep mode for battery-friendliness
     - Trivial hardware implementation
+    - Schmitt trigger GPIO pins
 
 
 == High-Level Functional Description
@@ -74,11 +75,9 @@ conditions:
 
 Note: the GPIO pin tied to the footswitch (normally high) will have some
 hardware-level EMI/RFI protections and also aid with debounce:
-    - TVS diode
-    - small (220pF) capacitor to ground for high frequency noise filtering
-    - pullup resistor to ATTiny13a voltage supply (100k)
-    - series resistor (say 100 to 1k ohm)
-    - slightly larger (maybe 100nF to 1uF) capacitor to ground for debounce
+    - 10k pullup resistor to ATTiny13a voltage supply
+    - 470-ohm series resistor
+    - 10nF MLCC capacitor to ground for debounce
 
 CD4053 Note:
     - the newer TMUX4053 switches can be controlled with logic
@@ -106,10 +105,11 @@ Initialization:
     - boilerplate ATTiny13a init
         - disable unused features: ADC, analog comparator, etc
         - set MCU to 1.2MHz clock (lowest practical speed)
+        - set PB0 as input (footswich)
+        - set PB1, PB2 as output (LED, 4053, respectively)
         - set unused GPIO pins to output low (will be not-connected
           at hardware level)
-    - set up watchdog timer with 1 second timeout - does this need
-      to be disabled in deep-sleep mode?
+    - enable brownout detection (BOD) - what does this mean/what does this do???
     - global typedefs:
         - uint8_t = boolean
     - global constants:
@@ -121,32 +121,37 @@ Initialization:
         - boolean RELEASED = FALSE // global switch_state, set when switch considered release-debounced
         - boolean LOW = FALSE // GPIO read value
         - boolean HIGH = TRUE // GPIO read value
-        - uint8_t RELEASED_COUNT = 25 // number of consecutive HIGH switch pin reads to be considered release-debounced
-        - uint8_t PRESSED_COUNT = 5 // number of consecutive LOW switch pin reads to be considered press-debounced
-        - uint8_t MAX_PRESS_WAIT_MS = 80 // maximum number of milliseconds we'll wait for the switch to be considered press-debounced
-    - global variables init:
+        - uint8_t RELEASE_THRESH = 25 // number of consecutive HIGH switch pin reads to be considered release-debounced
+        - uint8_t PRESSED_THRESH = 5 // number of consecutive LOW switch pin reads to be considered press-debounced
+        - uint8_t MAX_PRESS_WAIT_MS = 80 // maximum milliseconds we'll wait for the switch to be considered press-debounced
+        - uint8_t WATCHDOG_TIMEOUT_MS = 128 // max milliseconds before WDT considers device hung/in bad state
+    - global variables init (shared between main() and ISRs - must be "volatile")
         - boolean "effect_state" = BYPASS
         - boolean "switch_state" = RELEASED
         - uint8_t "debounce_counter" = 0
         - uint8_t "press_debounce_timeout" = 0
-    - static_assert(RELEASED_COUNT > PRESSED_COUNT)
+    - static_assert(RELEASE_THRESH > PRESSED_THRESH)
+    - static_assert(MAX_PRESS_WAIT_MS > (RELEASE_THRESH+PRESSED_THRESH))
+    - static_assert(WATCHDOG_TIMEOUT_MS > MAX_PRESS_WAIT_MS)
     - call set_bypass_state() function
     - if PB0 is low (i.e. footswitch is pressed):
         // special case: footswitch pressed during power-on: keep in
         // bypass state, but use timer + interrupt function to wait
         // for release
         - switch_state = PRESSED
-        - debounce_counter = RELEASED_COUNT
+        - debounce_counter = RELEASE_THRESH
         - set 1ms timer interrupt to call timer_interrupt() periodically (wait for swtich to be released)
-    - call go_to_sleep() function
+      else call go_to_sleep() function
 
 
 on_pin_change() function:
     - disable pin change interrupt
-    - wakeup MCU
+    - wakeup MCU // run main() block
 
 go_to_sleep() function:
-    - enable pin change interrupt (on_pin_change())
+    - disable watchdog timer
+    - disable 1ms timer
+    - enable pin change interrupt
     - put MCU to deep sleep state
 
 set_bypass_state() function:
@@ -162,56 +167,62 @@ set_engaged_state() function:
 timer_interrupt() function:
     // - called from timer interrupt every 1ms
     // - read footswitch pin, looking for consecutive reads of the same value
-    // - use an integrator to have some tolerance to noisy switches/environments
-    // - after PRESSED_COUNT consecutive LOW reads, we consider the
+    // - use a saturating integrator to have some tolerance to noisy
+    //   switches/environments
+    // - after PRESSED_THRESH sampled LOW reads, we consider the
     //   switch press-debounced
-    // - after RELEASED_COUNT consecutive HIGH reads, we consider
+    // - after RELEASE_THRESH sampled HIGH reads, we consider
     //   the switch release-debounced
-    // - the asymmetry between PRESSED_COUNT and RELEASED_COUNT is
+    // - the asymmetry between PRESSED_THRESH and RELEASE_THRESH is
     //   to bias the debounce time after the actual action (effect
     //   engage/bypass) to balance responsiveness with robust switch
-    //    de-bouncing
+    //   de-bouncing
 
-    - pet the watchdog
+    - reset WDT // watchdog timer ("pet the dog")
 
+    // timeout on noise/spurious interrupt
     - if (press_debounce_timeout < UINT8_MAX) { ++press_debounce_timeout; }
+    - if ((RELEASED == switch_state) && (press_debounce_timeout > MAX_PRESS_WAIT_MS))
+        - call go_to_sleep() function
 
+    // saturating integrator update
     - boolean raw_press = read(PB0)
     - if (LOW == raw_press)
-        - if (debounce_counter < RELEASED_COUNT))
-            - increment debounce_counter
-        - if ((RELEASED == switch_state) && (debounce_counter > PRESSED_COUNT))
-            - switch_state = PRESSED
-            - debounce_counter = RELEASED_COUNT
+        - if (debounce_counter < RELEASE_THRESH) { ++debounce_counter }
       else // HIGH == raw_press
-        - if (debounce_counter > 0)
-            - decrement debounce_counter
-        - if ((PRESSED == switch_state) && (0 == debounce_counter))
-            - switch_state = RELEASED
+        - if (debounce_counter > 0) { --debounce_counter }
 
-main loop:
-    - put MCU in deep sleep mode
-    - when woken from sleep:
-        - press_debounce_timeout = 0
-        - boolean did_effect_state_change = FALSE
-        - debounce_counter = (PB0 == LOW)
-        - set 1ms timer interrupt to call timer_interrupt() periodically
+    // switch state update
+    - if ((PRESSED == switch_state) && (0 == debounce_counter))
+        - switch_state = RELEASED
+    - if ((RELEASED == switch_state) && (debounce_counter >= PRESSED_THRESH))
+        - switch_state = PRESSED
+        - debounce_counter = RELEASE_THRESH
 
-        // timeout on noise/spurious interrupt
-        - if ((RELEASED == switch_state) && (press_debounce_timeout > MAX_PRESS_WAIT_MS))
-            - call go_to_sleep() function
+    // change effect state only once per wakeup (i.e. once per
+    // switch press)
+    - if ((PRESSED == switch_state) && (!did_effect_state_change)
+        - if (ENGAGED == effect_state)
+            - call set_bypass_state() function
+          else // BYPASS == effect_state
+            - call set_engaged_state() function
+        - did_effect_state_change = TRUE
 
-        // change effect state only once per wakeup (i.e. once per
-        // switch press)
-        - if ((PRESSED == switch_state) && (!did_effect_state_change)
-            - if (ENGAGED == effect_state)
-                - call set_bypass_state() function
-              else // BYPASS == effect_state
-                - call set_engaged_state() function
-            - did_effect_state_change = TRUE
-        
-        // after we've changed state due to a debounced footswitch
-        // press, now we wait for a debounced footswitch release
-        - if ((RELEASED == switch_state) && (did_effect_state_change))
-            - call go_to_sleep() function
+    // after we've changed state due to a debounced footswitch
+    // press, now we wait for a debounced footswitch release
+    - if ((RELEASED == switch_state) && (did_effect_state_change))
+        - call go_to_sleep() function
+
+
+main():
+    // inifinite loop
+    // due to use of IDLE_MODE, this block should fire exactly once
+    // on every wakeup (due to pin change interrupt/on_pin_change())
+    - clear/reset WDT counters/timer
+    - enable WDT with WATCHDOG_TIMEOUT_MS timeout
+    - press_debounce_timeout = 0
+    - boolean did_effect_state_change = FALSE
+    - debounce_counter = (PB0 == LOW)
+    - set 1ms timer interrupt to call timer_interrupt() periodically
+    - set IDLE_MODE sleep state // timers active but CPU otherwise halted
 
