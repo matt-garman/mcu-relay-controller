@@ -37,8 +37,8 @@ Therefore, the ATTiny13a needs to:
     - respond to footswitch presses (including debounce)
     - control the actual signal switching mechanism
 
-At power-on, the circuit shoul default to the bypass state with the
-LED dark (no state persistance between power cycles).
+At power-on, the circuit should default to the bypass state with the
+LED dark (no state persistence between power cycles).
 
 The state change should feel immediate to the user, and be triggered
 on press (not on release).
@@ -55,7 +55,7 @@ adverse conditions:
     - Under assumed operating conditions, one physical press must
       generate exactly one state change
     - One physical release must generate zero state changes
-    - Resiliancy against EMI/RFI-induced false state changes in
+    - Resiliency against EMI/RFI-induced false state changes in
       expected operating environments
     - Switch bounce must never generate multiple state changes
     - Holding the switch down for several seconds must not generate additional
@@ -82,7 +82,7 @@ adverse conditions:
       approximately 30 milliseconds between presses under ideal
       conditions; time between recognized repeated taps will be
       longer in noisy environments, or when using old switches, etc
-    - The design attempts to be EMI/RFI resilliant; however, an
+    - The design attempts to be EMI/RFI resilient; however, an
       old/low-quality/fouled-contact footswitch might be very
       "bouncy"; the design can't distinguish EMI/RFI noise from
       switch bounce.  The tradeoff is that increased noise/bounce
@@ -352,7 +352,7 @@ main() function:
             // consider pausing interrupts to read the values into
             // local copy variables first - but that adds complexity
             // when the worst-case issue is an extra 1ms delay -
-            // imperceptable and therefore acceptable for this
+            // imperceptible and therefore acceptable for this
             // design
             
             // waiting for the footswitch to be press-debounced
