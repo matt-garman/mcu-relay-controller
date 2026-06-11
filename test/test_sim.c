@@ -29,6 +29,8 @@
 #define FW_PATH      "attiny13_bypass.elf"
 #define MCU_NAME     "attiny13"
 #define F_CPU_HZ     1200000UL
+#define PRESSED_THRESH 8
+#define RELEASE_THRESH 25
 
 #define FOOTSW_PIN   0  // PB0
 #define LED_PIN      1  // PB1
@@ -71,6 +73,15 @@ static void cd4053_hook(struct avr_irq_t *irq, uint32_t value, void *param) {
     g_cd4053_level = value ? 1 : 0;
 }
 
+static uint32_t xorshift32(uint32_t *state) {
+    uint32_t x = *state;
+    x ^= x << 13;
+    x ^= x >> 17;
+    x ^= x << 5;
+    *state = x;
+    return x;
+}
+
 // Drive the footswitch pin. pressed != 0 => drive LOW (pressed).
 static void footsw_set(int pressed) {
     avr_irq_t *pin = avr_io_getirq(g_avr,
@@ -96,6 +107,11 @@ static void run_ms(unsigned ms) {
             break;
         }
     }
+}
+
+static inline void footsw_drive(int pressed, unsigned ms) {
+    footsw_set(pressed);
+    run_ms(ms);
 }
 
 // (Re)load firmware and reset sim to a clean power-on state with the
@@ -219,13 +235,93 @@ static void test_fast_repeated_taps(void) {
     uint32_t before = g_led_changes;
     int taps = 4;
     for (int i = 0; i < taps; ++i) {
-        footsw_set(1); run_ms(20);
-        footsw_set(0); run_ms(40);
+        footsw_drive(1, 20);
+        footsw_drive(0, 40);
     }
     CHECK((g_led_changes - before) == (uint32_t)taps,
           "%d taps -> %d LED changes, got %u", taps, taps, g_led_changes - before);
     CHECK(g_led_level == 0, "even taps -> back to dark");
 }
+
+// Random noise fuzz: 60s of random chatter should not spam toggles.
+static void test_random_noise_resilience(void) {
+    if (sim_reset(0) != 0) { g_failures++; return; }
+
+    uint32_t before = g_led_changes;
+    uint32_t rng = 0xDEADBEEF;
+
+    for (uint32_t t = 0; t < 60000; ++t) {
+        int pressed = (xorshift32(&rng) & 0xFF) < 128;
+        footsw_drive(pressed, 1);
+    }
+
+    uint32_t toggles = g_led_changes - before;
+    CHECK(toggles < 2000,
+          "random noise produced too many toggles: %u", toggles);
+}
+
+// Adversarial thresholds: oscillate just below and just above PRESSED_THRESH.
+static void test_adversarial_patterns(void) {
+    if (sim_reset(0) != 0) { g_failures++; return; }
+
+    uint32_t before = g_led_changes;
+    for (int cycle = 0; cycle < 50; ++cycle) {
+        footsw_drive(1, PRESSED_THRESH - 1);
+        footsw_drive(0, PRESSED_THRESH);
+    }
+    CHECK((g_led_changes - before) == 0,
+          "sub-threshold oscillation should not toggle, got %u",
+          g_led_changes - before);
+
+    before = g_led_changes;
+    for (int cycle = 0; cycle < 50; ++cycle) {
+        footsw_drive(1, PRESSED_THRESH + 1);
+        footsw_drive(0, RELEASE_THRESH + 5);
+    }
+    CHECK((g_led_changes - before) == 50,
+          "just-past-threshold presses should toggle, got %u",
+          g_led_changes - before);
+    CHECK(g_led_level == 0,
+          "after even toggles LED should be dark, got %d", g_led_level);
+}
+
+// Extreme bounce: random chatter before each press should still yield one toggle.
+static void test_extreme_bounce(void) {
+    if (sim_reset(0) != 0) { g_failures++; return; }
+
+    uint32_t before = g_led_changes;
+
+    for (int press = 0; press < 10; ++press) {
+        uint32_t rng = 0x12345678u + (uint32_t)press;
+        for (int i = 0; i < 50; ++i) {
+            int pressed = xorshift32(&rng) & 1;
+            footsw_drive(pressed, 1);
+        }
+        footsw_drive(1, 20);
+        footsw_drive(0, 40);
+    }
+
+    CHECK((g_led_changes - before) == 10,
+          "extreme bounce should yield 10 toggles, got %u",
+          g_led_changes - before);
+}
+
+// Sustained 1kHz chatter should never reach the threshold.
+static void test_sustained_noise(void) {
+    if (sim_reset(0) != 0) { g_failures++; return; }
+
+    uint32_t before = g_led_changes;
+    for (uint32_t t = 0; t < 10000; ++t) {
+        int pressed = (t & 1) ? 1 : 0;
+        footsw_drive(pressed, 1);
+    }
+
+    CHECK((g_led_changes - before) == 0,
+          "sustained 1ms square wave should not toggle, got %u",
+          g_led_changes - before);
+    CHECK(g_led_level == 0, "square wave should leave LED dark, got %d", g_led_level);
+}
+
 
 //////////////////////////////////////////////////////////////////////////////
 // Sleep + watchdog behavior
@@ -347,6 +443,10 @@ int main(void) {
     test_short_spike_rejected();
     test_power_on_pressed();
     test_fast_repeated_taps();
+    test_random_noise_resilience();
+    test_adversarial_patterns();
+    test_extreme_bounce();
+    test_sustained_noise();
     test_enters_idle_sleep();
     test_watchdog_not_tripped_normally();
     test_watchdog_backstop_documented();

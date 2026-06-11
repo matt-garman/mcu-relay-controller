@@ -354,7 +354,7 @@ static void test_stress_sustained_noise(void) {
 // state change under clean conditions.
 static void test_latency_measurement(void) {
     model_t m; model_init(&m, 0);
-    
+
     // Measure time from first low sample to toggle
     uint32_t latency_ms = 0;
     for (uint32_t t = 0; t < 100; ++t) {
@@ -385,12 +385,54 @@ static void test_latency_measurement(void) {
             break;
         }
     }
-    
+
     // With 70% duty cycle, expect latency around PRESSED_THRESH / 0.7 ≈ 11ms
     // Allow up to 30ms for noisy conditions
     CHECK(latency_ms >= PRESSED_THRESH && latency_ms <= 30,
           "noisy press latency should be %d-30 ms, got %u ms",
           PRESSED_THRESH, latency_ms);
+}
+
+// Oscillator drift sweeps: ±10% tick variation should still satisfy latency
+// and release-lockout expectations.
+static void test_latency_with_oscillator_drift(void) {
+    const double tick_ms[] = {0.9, 1.1};
+
+    for (size_t i = 0; i < sizeof(tick_ms) / sizeof(tick_ms[0]); ++i) {
+        double step_ms = tick_ms[i];
+
+        model_t m; model_init(&m, 0);
+
+        uint32_t press_ticks = 0;
+        while (m.toggle_count == 0 && press_ticks < 100) {
+            model_step_ms(&m, 1);
+            press_ticks++;
+        }
+
+        double latency_ms = press_ticks * step_ms;
+        CHECK(m.toggle_count == 1,
+              "drift %.1f: first press should toggle once, got %u toggles",
+              step_ms, m.toggle_count);
+        CHECK(latency_ms <= 10.0,
+              "drift %.1f: latency %.2f ms exceeds 10 ms",
+              step_ms, latency_ms);
+
+        uint32_t release_ticks = 0;
+        while (m.program_state != PRESS_DEBOUNCE_WAIT && release_ticks < 500) {
+            model_step_ms(&m, 0);
+            release_ticks++;
+        }
+
+        double release_ms = release_ticks * step_ms;
+        CHECK(m.program_state == PRESS_DEBOUNCE_WAIT,
+              "drift %.1f: state failed to re-arm after release", step_ms);
+        CHECK(release_ms >= RELEASE_THRESH * step_ms - 1e-6,
+              "drift %.1f: release lockout %.2f ms shorter than expected",
+              step_ms, release_ms);
+        CHECK(release_ms <= (RELEASE_THRESH + 2) * step_ms,
+              "drift %.1f: release lockout %.2f ms longer than expected",
+              step_ms, release_ms);
+    }
 }
 
 // Fuzz test: power-on-pressed with random release timing.
@@ -436,6 +478,7 @@ int main(void) {
     test_fuzz_extreme_bounce();
     test_stress_sustained_noise();
     test_latency_measurement();
+    test_latency_with_oscillator_drift();
     test_fuzz_power_on_release_timing();
 
     printf("\nhost golden-model tests: %d checks, %d failures\n",

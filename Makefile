@@ -30,6 +30,8 @@ SIMAVR_INC  ?= /usr/include/simavr
 SIM_CFLAGS   = -std=c11 -Wall -Wextra -I$(SIMAVR_INC)
 SIM_LIBS     = -lsimavr -lelf
 
+ANALYZE_CMD   ?= clang-tidy $(TARGET).c -- $(CFLAGS)
+
 CFLAGS  = -mmcu=$(MCU) -DF_CPU=$(F_CPU) -Os \
           -fshort-enums -funsigned-char \
           -ffunction-sections -fdata-sections \
@@ -37,7 +39,7 @@ CFLAGS  = -mmcu=$(MCU) -DF_CPU=$(F_CPU) -Os \
 
 LDFLAGS = -mmcu=$(MCU) -Wl,--gc-sections
 
-.PHONY: all clean size readfuses fuses flash program test test-host test-sim trace
+.PHONY: all clean size readfuses fuses flash program test test-host test-sim trace analyze
 
 all: $(TARGET).hex size
 
@@ -103,6 +105,19 @@ trace: test/test_trace
 
 test/test_trace: test/test_sim.c $(TARGET).elf
 	$(HOSTCC) $(SIM_CFLAGS) -DTRACE $< -o $@ $(SIM_LIBS)
+
+# Static analysis (default: avr-gcc -fanalyzer). Override ANALYZE_CC / ANALYZE_FLAGS as needed.
+analyze: $(TARGET).c
+	@cmd=$(word 1,$(ANALYZE_CMD)); \
+	if command -v $$cmd >/dev/null 2>&1; then \
+		$(ANALYZE_CMD); \
+	elif $(CC) -fsyntax-only -fanalyzer -xc /dev/null >/dev/null 2>&1; then \
+		$(CC) $(CFLAGS) -fanalyzer -c $< -o $(TARGET).analyze.o; \
+		rm -f $(TARGET).analyze.o; \
+	else \
+		echo "No static analysis tool available. Set ANALYZE_CMD=... or install clang-tidy / avr-gcc with -fanalyzer."; \
+		exit 1; \
+	fi
 
 
 # vim: tw=0 nowrap
