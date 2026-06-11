@@ -23,6 +23,13 @@ HFUSE = 0xfb
 
 AVRDUDE_FLAGS = -c $(PROGRAMMER) -p $(AVRDUDE_PART)
 
+# Host (PC) compiler for the test suite.
+HOSTCC      ?= cc
+HOST_CFLAGS  = -std=c11 -Wall -Wextra -Werror
+SIMAVR_INC  ?= /usr/include/simavr
+SIM_CFLAGS   = -std=c11 -Wall -Wextra -I$(SIMAVR_INC)
+SIM_LIBS     = -lsimavr -lelf
+
 CFLAGS  = -mmcu=$(MCU) -DF_CPU=$(F_CPU) -Os \
           -fshort-enums -funsigned-char \
           -ffunction-sections -fdata-sections \
@@ -30,7 +37,7 @@ CFLAGS  = -mmcu=$(MCU) -DF_CPU=$(F_CPU) -Os \
 
 LDFLAGS = -mmcu=$(MCU) -Wl,--gc-sections
 
-.PHONY: all clean size readfuses fuses flash program
+.PHONY: all clean size readfuses fuses flash program test test-host test-sim
 
 all: $(TARGET).hex size
 
@@ -44,7 +51,8 @@ size: $(TARGET).elf
 	$(SIZE) --mcu=$(MCU) -C $<
 
 clean:
-	rm -f $(TARGET).elf $(TARGET).hex
+	rm -f $(TARGET).elf $(TARGET).hex \
+		test/test_logic_host test/test_sim
 
 # Read and print the currently programmed fuse bytes (safe, read-only).
 # Run this first to record the chip's existing fuses before changing them.
@@ -64,6 +72,27 @@ flash: $(TARGET).hex
 
 # Convenience: set fuses, then flash firmware. Use for a fresh chip.
 program: fuses flash
+
+
+# --- Tests -----------------------------------------------------------------
+
+# Run all pre-hardware tests: host golden-model + simavr firmware sim.
+test: test-host test-sim
+
+# Host-compiled golden-model unit tests (no AVR; fast logic verification).
+test-host: test/test_logic_host
+	./test/test_logic_host
+
+test/test_logic_host: test/test_logic_host.c
+	$(HOSTCC) $(HOST_CFLAGS) $< -o $@
+
+# simavr integration tests: run the REAL firmware .elf in the simulator,
+# drive PB0, assert PB1/PB2. Depends on the built firmware.
+test-sim: test/test_sim
+	./test/test_sim
+
+test/test_sim: test/test_sim.c $(TARGET).elf
+	$(HOSTCC) $(SIM_CFLAGS) $< -o $@ $(SIM_LIBS)
 
 
 # vim: tw=0 nowrap
