@@ -311,6 +311,7 @@ static void init(void) {
 
     // init done, now re-enable interrupts
     sei();
+    __asm__ __volatile__("" ::: "memory"); // belt-and-suspenders to prevent compiler reordering acros sei()
 }
 
 
@@ -332,7 +333,9 @@ int main(void) {
                 // outputs, footswitch input.
                 ((DDRB & ((1 << LED_PIN) | (1 << CD4053_PIN))) !=
                  ((1 << LED_PIN) | (1 << CD4053_PIN))) ||
-                ((DDRB & (1 << FOOTSW_PIN)) != 0)
+                ((DDRB & (1 << FOOTSW_PIN)) != 0) ||
+                // assert footswitch pullup still enabled
+                ((PORTB & (1 << FOOTSW_PIN)) == 0)
  
            ) {
             force_wdt_reset();
@@ -342,6 +345,9 @@ int main(void) {
         //   the timer ISR is being invoked
         // - if main() loop fails or timer ISR stops running,
         //   watchdog timeout will expire
+        // - potential logical race here with timer ISR - could possibly miss
+        //   one timer ISR update, but will be correct on next loop iteration,
+        //   so will not trigger WDT timeout
         if (TIMER_ISR_CALLED == timer_isr_called_) {
             timer_isr_called_ = TIMER_ISR_NOT_CALLED;
             wdt_reset(); // "pet the dog"
@@ -366,6 +372,9 @@ int main(void) {
                 {
                     // check for press-debounced condition
                     if (debounce_counter_ >= PRESSED_THRESH) {
+                        // note: logical race here, ISR could increment
+                        // debounce_counter_ between above read and below
+                        // write: ok, does not violate design intent
                         debounce_counter_ = RELEASE_THRESH;
                         program_state_ = RELEASE_DEBOUNCE_WAIT;
                         if (BYPASS == effect_state_) { set_engaged_state(); }

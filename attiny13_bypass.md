@@ -69,6 +69,12 @@ adverse conditions:
 
 
 == Caveats and Limitations
+    - The footswitch polling loop is based on a 1ms timer, driven by
+      the ATTiny13a's builtin oscillator; this oscillator can drift
+      +/- 10% (e.g. voltage fluctuations, temperature), which means
+      actual sampling is roughly 0.9-1.1ms.  The algorithm still
+      holds, and timing variations of this magnitude will not be
+      perceptible to the user and are therefore acceptable.
     - Pop/click suppression is out-of-scope for this design; a
       future revision will incorporate a temporary muting scheme
       during engaged-bypass transitions
