@@ -7,10 +7,8 @@
     - Readily available in SMD and through-hole
     - Low cost
     - avrtools - mature, fully-featured free/open-source tooling
-    - Low power in sleep mode for battery-friendliness (note that
-      the brownout detector (BOD) is active during sleep, which uses
-      more power than a "pure" deep sleep: this is an accepted
-      design compromise between resiliancy and power-savings)
+    - Low-ish power by use of CPU IDLE mode for typically <1mA
+      current draw
     - Trivial hardware implementation
     - Schmitt trigger GPIO pins
 
@@ -73,6 +71,10 @@ conditions:
     - Pop/click suppression is out-of-scope for this design; a
       future revision will incorporate a temporary muting scheme
       during engaged-bypass transitions
+    - The design could be made more battery-friendly by use of a
+      DEEP_SLEEP state when waiting for a footswitch press; that may
+      be considered for a future revision - but the current design
+      bias is towards simplicity and verifiability
     - A mechanically stuck switch results in permanent active-mode
       power draw and no recovery; this is by design
     - "Fast" repeated taps: "fast" generally means at least
@@ -90,22 +92,6 @@ conditions:
         - Footswitch leads are tightly twisted
         - PCB and footswitch wiring housed in a grounded metal
           enclosure
-
-
-== Deep-sleep discussion
-    - To save power, this design puts the MCU into DEEP_SLEEP mode
-      between footswitch press events
-    - Pin-change interrupt is used to wake the MCU from sleep and
-      run the debounce routine
-    - With the brownout detector (BOD) active, the MCU will draw
-      roughly 20-25 micro-amps in deep sleep
-    - Alternative, simpler designs could omit the sleep complexities
-      at a significantly higher power cost:
-        - naive always-active mode: likely 0.5 to 1.0 mA in idle
-        - middle-ground CPU IDLE mode with 1ms timer active: roughly
-          200-300 micro-amps while waiting for press
-    - The added firmware complexity is an acceptable added cost for
-      dramatically increased power savings
 
 
 == GPIO pin assignment
@@ -180,10 +166,6 @@ CD4053 Note:
 // the following enum describes the possible high-level states of
 // the debounce/bypass scheme:
 typedef enum {
-    // the MCU is in it's lowest power state, essentially inactive
-    // except for WDT, BOD, PBO/footswitch pin change detection
-    DEEP_SLEEP = 0,
-
     // 1ms PB0/footswitch pin sampling, waiting for footswitch to be
     // press-debounced (i.e. footswitch considered open/released in
     // this state)
@@ -194,12 +176,8 @@ typedef enum {
     // release-debounced (i.e. footswitch considered closed/pressed
     // in this state)
     RELEASE_DEBOUNCE_WAIT,
-
-    // footswitch has been through a press-debounced and
-    // release-debounced cycle, and the status LED plus actual
-    // effect engage/bypass state has been updated
-    PREPARE_SLEEP,
 } program_state_t;
+
 
 // a flag to keep track of the effect/bypass state
 typedef enum {
@@ -214,11 +192,6 @@ typedef enum {
     TIMER_ISR_NOT_CALLED,
 } timer_isr_called_t;
 
-// a flag to tell main() if the wakeup was from the WDT or PCINT
-typedef enum {
-    WAKEUP_PCINT = 0,
-    WAKEUP_WDT,
-} wakeup_reason_t;
 
 ////////////
 // constants
@@ -246,17 +219,8 @@ typedef enum {
 // de-bouncing
 #define PRESSED_THRESH (8)
 
-// - maximum milliseconds we'll wait for the switch to be considered
-//   press-debounced
-// - this also acts as the back-to-sleep timeout on a spurious
-//   wakeup due to e.g. EMI/RFI
-#define MAX_PRESS_WAIT_MS (125)
-
 // max milliseconds before WDT considers device hung/in bad state
-// a short one for when the MCU is awake/idle
-// a very long one for when the MCU is sleeping
-#define WATCHDOG_TIMEOUT_AWAKE_MS (250)
-#define WATCHDOG_SLEEP_HEARTBEAT_MS (8000)
+#define WATCHDOG_TIMEOUT_MS (250)
 
 
 ///////////////////
@@ -267,10 +231,8 @@ typedef enum {
 
 effect_state_t effect_state_; // not touched in ISR, don't need volatile
 program_state_t program_state_; // not touched in ISR, don't need volatile
-volatile wakeup_reason_t wakeup_reason_;
 volatile timer_isr_called_t timer_isr_called_;
 volatile uint8_t debounce_counter_;
-volatile uint8_t press_debounce_timeout_;
 
 
 ////////////
@@ -288,14 +250,10 @@ function init():
     - static_assert(RELEASE_THRESH > PRESSED_THRESH)
     - static_assert(PRESSED_THRESH < UINT8_MAX);
     - static_assert(PRESSED_THRESH > 0);
-    - static_assert(MAX_PRESS_WAIT_MS < UINT8_MAX);
-    - static_assert(MAX_PRESS_WAIT_MS > 0);
-    - static_assert(MAX_PRESS_WAIT_MS > (RELEASE_THRESH+PRESSED_THRESH)) // note that "thresh" values are in "counts" units - due to 1ms timer, one count == 1ms in this design
-    - static_assert(WATCHDOG_TIMEOUT_AWAKE_MS > MAX_PRESS_WAIT_MS)
 
     - disable interrupts
     - clear WDT flag, reset WDT (init() may be called due to watchdog event)
-    - enable WDT with WATCHDOG_TIMEOUT_AWAKE_MS timeout
+    - enable WDT with WATCHDOG_TIMEOUT_MS timeout
     - disable unused features: ADC, analog comparator, etc
     - set MCU to 1.2MHz clock (lowest practical speed)
     - set PB0 as input (footswich), enable internal pullup (note:
@@ -307,32 +265,20 @@ function init():
 
     - call set_bypass_state() function // note: sets effect_state_ = BYPASS
 
-    - wakeup_reason_ = WAKEUP_WDT;
-
     // special case: footswitch pressed during power-on: keep in
     // bypass state, but use timer + interrupt function to wait
     // for release
     if PB0 is low { // footswitch is pressed
-        - timer_isr_called_ = TIMER_ISR_CALLED;
-        - program_state_ = RELEASE_DEBOUNCE_WAIT;
-        - debounce_counter_ = RELEASE_THRESH;
-        - press_debounce_timeout_ = 0; // this isn't necessary, since press_debounce_timeout_ only matters in PRESS_DEBOUNCE_WAIT
-        - set 1ms timer interrupt to call timer_interrupt() periodically (wait for swtich to be released)
+        program_state_ = RELEASE_DEBOUNCE_WAIT;
+        debounce_counter_ = RELEASE_THRESH;
     }
     else { // standard case
-        program_state_ = PREPARE_SLEEP;
+        program_state_ = PRESS_DEBOUNCE_WAIT;
+        debounce_counter_ = 0;
     }
 
+    - set 1ms timer interrupt to call timer_interrupt() periodically (wait for swtich to be released)
 
-on_pin_change() function:
-    // - this should only be called when the MCU is in DEEP_SLEEP 
-    //   state
-    // - DEEP_SLEEP state should only be possible when the
-    //   footswitch has been release-debounced
-    // - use PCINT0 on PB0 (wakes from power-down, edge-agnostic,
-    //   but logic structure means it will wake on falling-edge)
-    - set wakeup_reason_ = WAKEUP_PCINT;
-    - wakeup MCU
 
 set_bypass_state() function:
     - effect_state_ = BYPASS;
@@ -352,8 +298,6 @@ timer_interrupt() function:
     //   switches/environments
 
     timer_isr_called_ = TIMER_ISR_CALLED; // used by main() to reset WDC
-
-    if (press_debounce_timeout_ < UINT8_MAX) { ++press_debounce_timeout_; }
 
     // saturating integrator update
     // PBO0 zero (low) == switch closed
@@ -377,7 +321,7 @@ main() function:
         // rays, extreme EMI)
         // always called, regardless of state
         // force WDT timeout if fail
-        if ( (program_state_ > PREPARE_SLEEP) ||
+        if ( (program_state_ > RELEASE_DEBOUNCE_WAIT) ||
              (effect_state_ > ENGAGED) ||
              (assert critical pin directions and other state-consistency variables)
            ) {
@@ -394,26 +338,6 @@ main() function:
         }
 
         switch (program_state_) {
-
-            // we were woken from sleep via on_pin_change()
-            case DEEP_SLEEP: {
-                if (WAKEUP_WDT == wakeup_reason_) {
-                    reset WDT // pet the dog
-                    go back to deep sleep
-                }
-                else { // WAKEUP_PCINT == wakeup_reason_
-                    wakeup_reason_ = WAKEUP_WDT;
-                    disable pin change interrupt
-                    clear/reset WDT counters/timer
-                    enable WDT with WATCHDOG_TIMEOUT_AWAKE_MS timeout
-                    timer_isr_called_ = TIMER_ISR_NOT_CALLED;
-                    debounce_counter_ = 0; // start sampling in ISR
-                    program_state_ = PRESS_DEBOUNCE_WAIT;
-                    press_debounce_timeout_ = 0;
-                    set 1ms timer interrupt to call timer_interrupt() periodically
-                }
-                break;
-            }
 
             // NOTE: reading the volatile globals here (e.g.
             // debounce_counter_) is a potential race condition,
@@ -437,11 +361,6 @@ main() function:
                     else { set_bypass_state(); }
                 }
             
-                // timeout spurious interrupt/false trigger
-                else if (press_debounce_timeout_ >= MAX_PRESS_WAIT_MS) {
-                    program_state_ = PREPARE_SLEEP;
-                }
-
                 // pause this loop until the 1ms switch poll timer wakes it
                 else {
                     set cpu to SLEEP_MODE_IDLE 
@@ -457,7 +376,7 @@ main() function:
             //       human resolution)
             case RELEASE_DEBOUNCE_WAIT: {
                 if (0 == debounce_counter_) {
-                    program_state_ = PREPARE_SLEEP;
+                    program_state_ = PRESS_DEBOUNCE_WAIT;
                 }
 
                 // pause this loop until the 1ms switch poll timer wakes it
@@ -465,28 +384,6 @@ main() function:
                     set cpu to SLEEP_MODE_IDLE 
                 }
                 break;
-            }
-            
-            case PREPARE_SLEEP: {
-
-                // PCINT flag latches edges even when interrupt
-                // disabled; we deliberately do not clear it before
-                // sleep so a press during the sleep-transition
-                // window is serviced immediately on wake.
-
-                disable 1ms timer
-                set watchdog timer to SLEEP_HEARTBEAT_MS
-                program_state_ = DEEP_SLEEP;
-                enable pin change interrupt // step x
-                reset WDT // pet the dog
-                put MCU to deep sleep state // step y
-                break;
-
-                // NOTE: will use proper atomic AVR sleep pattern to
-                // overcome rare-but-possible case where user
-                // presses switch between steps x and y which would
-                // effectively put the device to sleep permanently
-                // (and then reset due to WDT)
             }
             
             default: {
