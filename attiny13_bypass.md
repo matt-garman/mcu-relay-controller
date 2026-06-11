@@ -6,7 +6,8 @@
 
     - Readily available in SMD and through-hole
     - Low cost
-    - avrtools - mature, fully-featured free/open-source tooling
+    - avrtools - mature, cross-platform, fully-featured
+      free/open-source tooling
     - Low-ish power by use of CPU IDLE mode for typically <1mA
       current draw
     - Trivial hardware implementation
@@ -39,11 +40,11 @@ Therefore, the ATTiny13a needs to:
 At power-on, the circuit shoul default to the bypass state with the
 LED dark (no state persistance between power cycles).
 
-The state change should feel immediate to the user, and be triggered on press
-(not on release).
+The state change should feel immediate to the user, and be triggered
+on press (not on release).
 
-This sub-circuit should be as robust as possible and assume likely adverse
-conditions:
+This sub-circuit should be as robust as possible and assume likely
+adverse conditions:
     - high temperature (e.g. noon-time Death Valley performance)
     - EMI/RFI (e.g. cell phones, wifi, flourescent lighting, AC motors,
       proximity to radio station, etc)
@@ -59,7 +60,7 @@ conditions:
     - Switch bounce must never generate multiple state changes
     - Holding the switch down for several seconds must not generate additional
       state changes
-    - Fast repeated taps should always be recognized (see Caveats
+    - Fast, repeated taps should always be recognized (see Caveats
       and Limitations)
     - Latency should feel instantaneous as possible given switch
       age/quality and environmental noise: <10ms under ideal
@@ -79,8 +80,8 @@ conditions:
       power draw and no recovery; this is by design
     - "Fast" repeated taps: "fast" generally means at least
       approximately 30 milliseconds between presses under ideal
-      conditions; time between recognized repeated taps will longer
-      in noisy environments, or when using old switches, etc
+      conditions; time between recognized repeated taps will be
+      longer in noisy environments, or when using old switches, etc
     - The design attempts to be EMI/RFI resilliant; however, an
       old/low-quality/fouled-contact footswitch might be very
       "bouncy"; the design can't distinguish EMI/RFI noise from
@@ -117,11 +118,11 @@ hardware-level EMI/RFI protections and also aid with debounce:
 
 CD4053 Note:
     - the newer TMUX4053 switches can be controlled with logic
-      levels lower than the voltage supply
+      levels lower than the voltage supply (e.g. CMOS, TTL)
     - the older CD4053 needs a logic "true" to be the same level as
       the voltage supply
     - the ATTiny13a will run at 5v, but the 4053 will run at the
-      effect voltage: 9 to 18 volts
+      effect voltage (9 to 18 volts)
     - 5v rail derived via LP2950 for through-hole implementation
       or AP7375 for SMD implementation
     - 5v rail only for MCU and footswitch - everything else
@@ -240,8 +241,8 @@ volatile uint8_t debounce_counter_;
 ////////////
 
 
-// initialization function: called when MCU is powered-on and out of
-// RESET state
+// initialization function: called when MCU is powered-on and/or out
+// of RESET state
 function init():
 
     // basic compile-time sanity checks on the #define constants
@@ -323,6 +324,7 @@ main() function:
         // force WDT timeout if fail
         if ( (program_state_ > RELEASE_DEBOUNCE_WAIT) ||
              (effect_state_ > ENGAGED) ||
+             (timer_isr_called_ > TIMER_ISR_NOT_CALLED) ||
              (assert critical pin directions and other state-consistency variables)
            ) {
              while (1) { } // force WDT timeout
