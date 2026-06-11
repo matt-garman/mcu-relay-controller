@@ -220,20 +220,6 @@ typedef enum {
 // de-bouncing
 #define PRESSED_THRESH (8)
 
-// debounce_counter_ is the saturating integrator which uses
-// RELEASE_THRESH and PRESSED_THRESH as press- and release-debounced
-// thresholds
-//
-// additionally, for a press to be considered debounce, we require
-// the most recent CONSECUTIVE_READS_THRESH press (low/closed)
-// samples to be consecutive
-//
-// the thinking is: EMI is more likely to be random, whereas a
-// bouncy switch eventually settles; EMI could eventually produce
-// PRESSED_THRESH low samples, but is less likely to produce
-// CONSECUTIVE_READS_THRESH consecutive low samples
-#define CONSECUTIVE_READS_THRESH (4)
-
 // max milliseconds before WDT considers device hung/in bad state
 #define WATCHDOG_TIMEOUT_MS (250)
 
@@ -248,7 +234,6 @@ effect_state_t effect_state_; // not touched in ISR, don't need volatile
 program_state_t program_state_; // not touched in ISR, don't need volatile
 volatile timer_isr_called_t timer_isr_called_;
 volatile uint8_t debounce_counter_;
-volatile uint8_t consecutive_low_reads_;
 
 
 ////////////
@@ -266,8 +251,6 @@ function init():
     - static_assert(RELEASE_THRESH > PRESSED_THRESH)
     - static_assert(PRESSED_THRESH < UINT8_MAX);
     - static_assert(PRESSED_THRESH > 0);
-    - static_assert(CONSECUTIVE_READS_THRESH < UINT8_MAX);
-    - static_assert(CONSECUTIVE_READS_THRESH < PRESSED_THRESH);
 
     - disable interrupts
     - clear WDT flag, reset WDT (init() may be called due to watchdog event)
@@ -281,8 +264,6 @@ function init():
     - enable brownout detection (BOD) at 2.7v
 
     - call set_bypass_state() function // note: sets effect_state_ = BYPASS
-
-    - consecutive_low_reads_ = 0;
 
     // special case: footswitch pressed during power-on: keep in
     // bypass state, but use timer + interrupt function to wait
@@ -325,10 +306,8 @@ timer_interrupt() function:
     uint8_t const switch_closed = (0 == digital_read(PB0));
     if (switch_closed) {
         if (debounce_counter_ < RELEASE_THRESH) { ++debounce_counter_: }
-        if (consecutive_low_reads_ < UINT8_MAX) { ++consecutive_low_reads_; }
     } else { // PB0 is high -> switch open
         if (debounce_counter_ > 0) { --debounce_counter_; }
-        consecutive_low_reads_ = 0;
     }
   
 
@@ -379,7 +358,7 @@ main() function:
             // waiting for the footswitch to be press-debounced
             case PRESS_DEBOUNCE_WAIT: {
                 // check for press-debounced condition
-                if ((debounce_counter_ >= PRESSED_THRESH) && (consecutive_low_reads_ >= CONSECUTIVE_READS_THRESH)) {
+                if (debounce_counter_ >= PRESSED_THRESH)) {
                     debounce_counter_ = RELEASE_THRESH;
                     program_state_ = RELEASE_DEBOUNCE_WAIT;
                     if (BYPASS == effect_state_) { set_engaged_state(); }
