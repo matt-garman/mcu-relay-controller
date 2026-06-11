@@ -261,7 +261,7 @@ function init():
       lowering effective pullup value to approximately 7-8k)
     - set PB1, PB2 as output (LED, 4053, respectively)
     - set unused GPIO pins (excluding PB5) to output low (will be not-connected at hardware level)
-    - enable brownout detection (BOD) at 2.7v
+    - enable brownout detection (BOD) at 2.7v // NOTE: this is a fuse, not a runtime-call
 
     - call set_bypass_state() function // note: sets effect_state_ = BYPASS
 
