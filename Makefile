@@ -37,7 +37,7 @@ CFLAGS  = -mmcu=$(MCU) -DF_CPU=$(F_CPU) -Os \
 
 LDFLAGS = -mmcu=$(MCU) -Wl,--gc-sections
 
-.PHONY: all clean size readfuses fuses flash program test test-host test-sim
+.PHONY: all clean size readfuses fuses flash program test test-host test-sim trace
 
 all: $(TARGET).hex size
 
@@ -52,7 +52,8 @@ size: $(TARGET).elf
 
 clean:
 	rm -f $(TARGET).elf $(TARGET).hex \
-		test/test_logic_host test/test_sim
+		test/test_logic_host test/test_sim test/test_trace \
+		bypass_trace.vcd
 
 # Read and print the currently programmed fuse bytes (safe, read-only).
 # Run this first to record the chip's existing fuses before changing them.
@@ -93,6 +94,15 @@ test-sim: test/test_sim
 
 test/test_sim: test/test_sim.c $(TARGET).elf
 	$(HOSTCC) $(SIM_CFLAGS) $< -o $@ $(SIM_LIBS)
+
+# Generate a GTKWave-viewable waveform of PB0/PB1/PB2 (bypass_trace.vcd).
+# Build a TRACE-enabled variant of the sim harness and run it.
+trace: test/test_trace
+	./test/test_trace
+	@echo "View with: gtkwave bypass_trace.vcd"
+
+test/test_trace: test/test_sim.c $(TARGET).elf
+	$(HOSTCC) $(SIM_CFLAGS) -DTRACE $< -o $@ $(SIM_LIBS)
 
 
 # vim: tw=0 nowrap

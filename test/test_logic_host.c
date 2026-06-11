@@ -37,7 +37,7 @@ typedef struct {
 } model_t;
 
 // Initialize the model the way init() does.
-// pressed_at_powue_on mirrors the "footswitch held during power-on" case.
+// pressed_at_power_on mirrors the "footswitch held during power-on" case.
 static void model_init(model_t *m, int pressed_at_power_on) {
     memset(m, 0, sizeof(*m));
     m->effect_state = BYPASS; // set_bypass_state()
@@ -60,7 +60,7 @@ static void model_tick_isr(model_t *m, int pin_low) {
     }
 }
 
-// One pass of the main()-loop state machine (the part that consumes the
+// One pass of the main loop state machine (the part that consumes the
 // integrator result and toggles effect state).
 static void model_main_step(model_t *m) {
     switch (m->program_state) {
