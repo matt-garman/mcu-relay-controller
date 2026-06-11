@@ -39,8 +39,6 @@
 //     -Wall
 //     -Wextra
 //
-// FIXME: also need F_CPU to be defined as 1200000 in build flags
-//
 // Fuse configuration:
 // Fuse      | Value                                     | Rationale
 // ----------+-------------------------------------------+----------------------------------------------------------------
@@ -53,9 +51,9 @@
 // SELFPRGEN | 1 (disabled)                              | No self-programming needed
 // DWEN      | 1 (disabled)                              | debugWIRE not needed in production; consumes PB5
 //
-// FIXME: also: 2.7v brownout detection (BOD)
-//
-// FIXME: supply avrdude CLI options for indicated fuse settings
+// avrdude fuse targets: -U lfuse:w:0x6a:m -U hfuse:w:0xfb:m
+// 
+// Note: useful fuse tool here: https://www.engbedded.com/fusecalc/
 //
 
 #include <assert.h>        // For static_assert()
