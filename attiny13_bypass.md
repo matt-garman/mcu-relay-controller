@@ -202,13 +202,15 @@ typedef enum {
     TIMER_ISR_NOT_CALLED,
 } timer_isr_called_t;
 
+// a flag to tell main() if the wakeup was from the WDT or PCINT
+typedef enum {
+    WAKEUP_PCINT,
+    WAKEUP_WDT,
+} wakeup_reason_t;
 
 ////////////
 // constants
 ////////////
-
-// see digital_read_majority_vote_pb0()
-#define DIGITAL_READ_VOTERS (7)
 
 // number of HIGH PB0/footswitch pin reads to be considered 
 // release-debounced, i.e. the "lock-out" period
@@ -233,7 +235,10 @@ typedef enum {
 #define MAX_PRESS_WAIT_MS (125)
 
 // max milliseconds before WDT considers device hung/in bad state
-#define WATCHDOG_TIMEOUT_MS (250)
+// a short one for when the MCU is awake/idle
+// a very long one for when the MCU is sleeping
+#define WATCHDOG_TIMEOUT_AWAKE_MS (250)
+#define WATCHDOG_TIMEOUT_SLEEP_MS (8000)
 
 
 ///////////////////
@@ -244,6 +249,7 @@ typedef enum {
 
 effect_state_t effect_state_; // not touched in ISR, don't need volatile
 program_state_t program_state_; // not touched in ISR, don't need volatile
+volatile wakeup_reason_t wakeup_reason_;
 volatile timer_isr_called_t timer_isr_called_;
 volatile uint8_t debounce_counter_;
 volatile uint8_t press_debounce_timeout_;
@@ -254,27 +260,11 @@ volatile uint8_t press_debounce_timeout_;
 ////////////
 
 
-uint8_t digital_read_majority_vote_pb0() function:
-    // - "belt-and-suspenders" digital_read() wrapper (technically
-    //   not necessary due to hardware RC filter and AVR Schmitt
-    //   inputs)
-    // - read PB0/footswitch pin DIGITAL_READ_VOTERS times rapidly:
-    //   pin state is based on "majority vote"
-    int8_t val = 0;
-    for (uint8_t i=0; i<DIGITAL_READ_VOTERS; ++i) {
-        val += digital_read(PB0) ? 1 : -1;
-    }
-    return val < 0 ? 0 : 1;
-
-
 // initialization function: called when MCU is powered-on and out of
 // RESET state
 function init():
 
     // basic compile-time sanity checks on the #define constants
-    - static_assert(1 == (DIGITAL_READ_VOTERS % 2)); // must be odd
-    - static_assert(DIGITAL_READ_VOTERS >= 3);
-    - static_assert(DIGITAL_READ_VOTERS < UINT8_MAX);
     - static_assert(RELEASE_THRESH < UINT8_MAX);
     - static_assert(RELEASE_THRESH > 0);
     - static_assert(RELEASE_THRESH > PRESSED_THRESH)
@@ -283,11 +273,11 @@ function init():
     - static_assert(MAX_PRESS_WAIT_MS < UINT8_MAX);
     - static_assert(MAX_PRESS_WAIT_MS > 0);
     - static_assert(MAX_PRESS_WAIT_MS > (RELEASE_THRESH+PRESSED_THRESH))
-    - static_assert(WATCHDOG_TIMEOUT_MS > MAX_PRESS_WAIT_MS)
+    - static_assert(WATCHDOG_TIMEOUT_AWAKE_MS > MAX_PRESS_WAIT_MS)
 
     - disable interrupts
     - clear WDT flag, reset WDT (init() may be called due to watchdog event)
-    - enable WDT with WATCHDOG_TIMEOUT_MS timeout
+    - enable WDT with WATCHDOG_TIMEOUT_AWAKE_MS timeout
     - disable unused features: ADC, analog comparator, etc
     - set MCU to 1.2MHz clock (lowest practical speed)
     - set PB0 as input (footswich), enable internal pullup (note:
@@ -299,6 +289,8 @@ function init():
 
     - call set_bypass_state() function // note: sets effect_state_ = BYPASS
 
+    - wakeup_reason_ = WAKEUP_WDT;
+
     // special case: footswitch pressed during power-on: keep in
     // bypass state, but use timer + interrupt function to wait
     // for release
@@ -307,7 +299,6 @@ function init():
         - program_state_ = RELEASE_DEBOUNCE_WAIT;
         - debounce_counter_ = RELEASE_THRESH;
         - press_debounce_timeout_ = 0; // this isn't necessary, since press_debounce_timeout_ only matters in PRESS_DEBOUNCE_WAIT
-        - enable WDT with WATCHDOG_TIMEOUT_MS timeout
         - set 1ms timer interrupt to call timer_interrupt() periodically (wait for swtich to be released)
     }
     else { // standard case
@@ -322,6 +313,7 @@ on_pin_change() function:
     //   footswitch has been release-debounced
     // - use PCINT0 on PB0 (wakes from power-down, edge-agnostic,
     //   but logic structure means it will wake on falling-edge)
+    - set wakeup_reason_ = WAKEUP_PCINT;
     - wakeup MCU
 
 set_bypass_state() function:
@@ -376,14 +368,21 @@ main() function:
 
             // we were woken from sleep via on_pin_change()
             case DEEP_SLEEP: {
-                disable pin change interrupt
-                clear/reset WDT counters/timer
-                enable WDT with WATCHDOG_TIMEOUT_MS timeout
-                timer_isr_called_ = TIMER_ISR_NOT_CALLED;
-                debounce_counter_ = digital_read_majority_vote_pb0();
-                program_state_ = PRESS_DEBOUNCE_WAIT;
-                press_debounce_timeout_ = 0;
-                set 1ms timer interrupt to call timer_interrupt() periodically
+                if (WAKEUP_WDT == wakeup_reason_) {
+                    reset WDT // pet the dog
+                    go back to deep sleep
+                }
+                else { // WAKEUP_PCINT == wakeup_reason_
+                    wakeup_reason_ = WAKEUP_WDT;
+                    disable pin change interrupt
+                    clear/reset WDT counters/timer
+                    enable WDT with WATCHDOG_TIMEOUT_AWAKE_MS timeout
+                    timer_isr_called_ = TIMER_ISR_NOT_CALLED;
+                    debounce_counter_ = 0; // start sampling in ISR
+                    program_state_ = PRESS_DEBOUNCE_WAIT;
+                    press_debounce_timeout_ = 0;
+                    set 1ms timer interrupt to call timer_interrupt() periodically
+                }
                 break;
             }
 
@@ -444,7 +443,7 @@ main() function:
                 // window is serviced immediately on wake.
 
                 disable 1ms timer
-                disable watchdog timer // must disable watchdog timer in deep sleep mode, otherwise WDT will trigger and reset the device
+                set watchdog timer to WATCHDOG_TIMEOUT_SLEEP_MS
                 program_state_ = DEEP_SLEEP;
                 enable pin change interrupt // step x
                 put MCU to deep sleep state // step y
