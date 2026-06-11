@@ -53,7 +53,8 @@ conditions:
 == Reliability Goals
     - Reference-quality
     - World-class touring musician grade
-    - One physical press must generate exactly one state change
+    - Under assumed operating conditions, one physical press must
+      generate exactly one state change
     - One physical release must generate zero state changes
     - Resiliancy against EMI/RFI-induced false state changes in
       expected operating environments
@@ -78,6 +79,17 @@ conditions:
       approximately 30 milliseconds between presses under ideal
       conditions; time between recognized repeated taps will longer
       in noisy environments, or when using old switches, etc
+    - The design attempts to be EMI/RFI resilliant; however, an
+      old/low-quality/fouled-contact footswitch might be very
+      "bouncy"; the design can't distinguish EMI/RFI noise from
+      switch bounce.  The tradeoff is that increased noise/bounce
+      immunity reduces responsiveness.  Therefore, the firmware
+      design assumes the following:
+        - High quality, modern footswitch
+        - Short (<10cm) leads between footswitch and PCB
+        - Footswitch leads are tightly twisted
+        - PCB and footswitch wiring housed in a grounded metal
+          enclosure
 
 
 == Deep-sleep discussion
@@ -114,7 +126,7 @@ hardware-level EMI/RFI protections and also aid with debounce:
       combined with internal AVR pullup resistor, so net is roughly
       7-8k)
     - 1k series resistor
-    - 10nF MLCC capacitor to ground for EMI/RFI supression
+    - 22nF MLCC capacitor to ground for EMI/RFI supression
 
 
 CD4053 Note:
@@ -142,7 +154,7 @@ CD4053 Note:
 
 
 == Toolchain
-    - avrtools (avr-gcc, avr-libc)
+    - avrtools (standard avr-gcc, avr-libc, avrdude toolchain)
     - no Arduino
 
 == Compilation Flags
@@ -170,7 +182,7 @@ CD4053 Note:
 typedef enum {
     // the MCU is in it's lowest power state, essentially inactive
     // except for WDT, BOD, PBO/footswitch pin change detection
-    DEEP_SLEEP,
+    DEEP_SLEEP = 0,
 
     // 1ms PB0/footswitch pin sampling, waiting for footswitch to be
     // press-debounced (i.e. footswitch considered open/released in
@@ -191,20 +203,20 @@ typedef enum {
 
 // a flag to keep track of the effect/bypass state
 typedef enum {
-    BYPASS,
+    BYPASS = 0,
     ENGAGED,
 } effect_state_t;
 
 // a flag to "multiplex" the WDT across the timer ISR and main()
 // loop
 typedef enum {
-    TIMER_ISR_CALLED,
+    TIMER_ISR_CALLED = 0,
     TIMER_ISR_NOT_CALLED,
 } timer_isr_called_t;
 
 // a flag to tell main() if the wakeup was from the WDT or PCINT
 typedef enum {
-    WAKEUP_PCINT,
+    WAKEUP_PCINT = 0,
     WAKEUP_WDT,
 } wakeup_reason_t;
 
@@ -220,13 +232,19 @@ typedef enum {
 // press-debounced
 //
 // trying to balance between "responds immediately" and "immune to
-// spurious interrupts"
+// spurious interrupts": we can't readily distinguish between
+// environmental noise (that we want to filter/ignore as entirely)
+// versus noise from an old/bouncy switch.
+//
+// note also that PRESSED_THRESH is the *minimum* time to confirmed
+// press-debounce: a noisy switch or environmental EMI/RFI could
+// increase the time to confirmed press-debounce
 //
 // the asymmetry between PRESSED_THRESH and RELEASE_THRESH is
 // to bias the debounce time after the actual action (effect
 // engage/bypass) to balance responsiveness with robust switch
 // de-bouncing
-#define PRESSED_THRESH (5)
+#define PRESSED_THRESH (8)
 
 // - maximum milliseconds we'll wait for the switch to be considered
 //   press-debounced
@@ -238,7 +256,7 @@ typedef enum {
 // a short one for when the MCU is awake/idle
 // a very long one for when the MCU is sleeping
 #define WATCHDOG_TIMEOUT_AWAKE_MS (250)
-#define WATCHDOG_TIMEOUT_SLEEP_MS (8000)
+#define WATCHDOG_SLEEP_HEARTBEAT_MS (8000)
 
 
 ///////////////////
@@ -272,7 +290,7 @@ function init():
     - static_assert(PRESSED_THRESH > 0);
     - static_assert(MAX_PRESS_WAIT_MS < UINT8_MAX);
     - static_assert(MAX_PRESS_WAIT_MS > 0);
-    - static_assert(MAX_PRESS_WAIT_MS > (RELEASE_THRESH+PRESSED_THRESH))
+    - static_assert(MAX_PRESS_WAIT_MS > (RELEASE_THRESH+PRESSED_THRESH)) // note that "thresh" values are in "counts" units - due to 1ms timer, one count == 1ms in this design
     - static_assert(WATCHDOG_TIMEOUT_AWAKE_MS > MAX_PRESS_WAIT_MS)
 
     - disable interrupts
@@ -355,6 +373,17 @@ main() function:
 
     while (1) {
 
+        // basic sanity checks against outlier events (cosmic
+        // rays, extreme EMI)
+        // always called, regardless of state
+        // force WDT timeout if fail
+        if ( (program_state_ > PREPARE_SLEEP) ||
+             (effect_state_ > ENGAGED) ||
+             (assert critical pin directions and other state-consistency variables)
+           ) {
+             while (1) { } // force WDT timeout
+        }
+
         // - the intent is to make sure both main() is running AND
         //   the timer ISR is being invoked
         // - if main() loop fails or timer ISR stops running,
@@ -393,7 +422,10 @@ main() function:
             // read garbage, but we might read an "old" value in the
             // precise instant before it is updated.  We could
             // consider pausing interrupts to read the values into
-            // local copy variables first
+            // local copy variables first - but that adds complexity
+            // when the worst-case issue is an extra 1ms delay -
+            // imperceptable and therefore acceptable for this
+            // design
             
             // waiting for the footswitch to be press-debounced
             case PRESS_DEBOUNCE_WAIT: {
@@ -443,11 +475,18 @@ main() function:
                 // window is serviced immediately on wake.
 
                 disable 1ms timer
-                set watchdog timer to WATCHDOG_TIMEOUT_SLEEP_MS
+                set watchdog timer to SLEEP_HEARTBEAT_MS
                 program_state_ = DEEP_SLEEP;
                 enable pin change interrupt // step x
+                reset WDT // pet the dog
                 put MCU to deep sleep state // step y
                 break;
+
+                // NOTE: will use proper atomic AVR sleep pattern to
+                // overcome rare-but-possible case where user
+                // presses switch between steps x and y which would
+                // effectively put the device to sleep permanently
+                // (and then reset due to WDT)
             }
             
             default: {
