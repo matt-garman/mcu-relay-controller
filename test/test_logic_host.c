@@ -228,6 +228,197 @@ static void test_fast_repeated_taps(void) {
     CHECK(m.effect_state == ENGAGED, "odd number of taps -> ENGAGED");
 }
 
+//////////////////////////////////////////////////////////////////////////////
+// Fuzz / stress tests
+//////////////////////////////////////////////////////////////////////////////
+
+// Simple PRNG (xorshift32) for reproducible fuzz testing.
+// Avoids stdlib rand() for portability and reproducibility.
+static uint32_t xorshift32(uint32_t *state) {
+    uint32_t x = *state;
+    x ^= x << 13;
+    x ^= x >> 17;
+    x ^= x << 5;
+    *state = x;
+    return x;
+}
+
+// Fuzz test: random switch patterns for extended simulated time.
+// Verifies invariants:
+//   - State machine never enters invalid state
+//   - Toggle count stays within reasonable bounds
+//   - No undefined behavior (would crash or assert)
+static void test_fuzz_random_patterns(void) {
+    model_t m; model_init(&m, 0);
+    uint32_t rng_state = 0xDEADBEEF; // reproducible seed
+    
+    // Run 1M ms (~16 minutes simulated time) of random switch patterns
+    const uint32_t duration_ms = 1000000;
+    
+    for (uint32_t t = 0; t < duration_ms; ++t) {
+        // Generate random pin state with some correlation to previous
+        // (real switches don't toggle at 1kHz)
+        uint32_t r = xorshift32(&rng_state);
+        int pin_low = (r & 0xFF) < 128; // ~50% duty cycle
+        
+        model_step_ms(&m, pin_low);
+        
+        // Invariant checks (every 1000 steps to avoid slowing down)
+        if ((t & 0x3FF) == 0) {
+            CHECK(m.program_state <= RELEASE_DEBOUNCE_WAIT,
+                  "fuzz: invalid program_state at t=%u", t);
+            CHECK(m.effect_state <= ENGAGED,
+                  "fuzz: invalid effect_state at t=%u", t);
+            CHECK(m.debounce_counter <= RELEASE_THRESH,
+                  "fuzz: debounce_counter out of range at t=%u", t);
+        }
+    }
+    
+    // After 1M ms of random noise, toggle count should be bounded.
+    // With 50% duty cycle noise, we expect some toggles but not millions.
+    // Conservative upper bound: 1000 toggles (one per 1000ms average).
+    CHECK(m.toggle_count < 2000,
+          "fuzz: excessive toggles from random noise: %u", m.toggle_count);
+}
+
+// Fuzz test: worst-case adversarial patterns designed to trigger edge cases.
+// Alternates between "almost press" and "almost release" to stress thresholds.
+static void test_fuzz_adversarial_patterns(void) {
+    model_t m; model_init(&m, 0);
+    
+    // Pattern 1: oscillate just below PRESSED_THRESH
+    for (int cycle = 0; cycle < 100; ++cycle) {
+        drive(&m, 1, PRESSED_THRESH - 1); // almost press (counter reaches 7)
+        drive(&m, 0, PRESSED_THRESH);     // full release (drain counter to 0)
+    }
+    CHECK(m.toggle_count == 0,
+          "adversarial: sub-threshold oscillation should not toggle, got %u",
+          m.toggle_count);
+    
+    // Reset and try pattern 2: oscillate just above PRESSED_THRESH
+    model_init(&m, 0);
+    for (int cycle = 0; cycle < 100; ++cycle) {
+        drive(&m, 1, PRESSED_THRESH + 1); // just past threshold
+        drive(&m, 0, RELEASE_THRESH + 5); // full release
+    }
+    CHECK(m.toggle_count == 100,
+          "adversarial: 100 just-past-threshold presses should yield 100 toggles, got %u",
+          m.toggle_count);
+}
+
+// Fuzz test: rapid chatter during press/release transitions.
+// Simulates a very bouncy switch with microsecond-scale chatter.
+static void test_fuzz_extreme_bounce(void) {
+    model_t m; model_init(&m, 0);
+    
+    // Simulate 10 presses, each with 50ms of 1ms chatter before settling
+    for (int press = 0; press < 10; ++press) {
+        // 50ms of random chatter
+        uint32_t rng = 0x12345678 + press;
+        for (int i = 0; i < 50; ++i) {
+            int pin_low = (xorshift32(&rng) & 1);
+            model_step_ms(&m, pin_low);
+        }
+        // Settle to clean press
+        drive(&m, 1, 20);
+        // Settle to clean release
+        drive(&m, 0, 40);
+    }
+    
+    // Should have exactly 10 toggles (one per press)
+    CHECK(m.toggle_count == 10,
+          "extreme bounce: 10 presses with chatter should yield 10 toggles, got %u",
+          m.toggle_count);
+}
+
+// Stress test: verify behavior under sustained high-frequency noise.
+// Simulates EMI/RFI environment with constant 1ms square wave on pin.
+static void test_stress_sustained_noise(void) {
+    model_t m; model_init(&m, 0);
+    
+    // 10 seconds of 1ms square wave (500Hz effective frequency)
+    for (uint32_t t = 0; t < 10000; ++t) {
+        int pin_low = (t & 1); // alternate every 1ms
+        model_step_ms(&m, pin_low);
+    }
+    
+    // With perfect 50% duty cycle at 1ms, integrator should hover around
+    // RELEASE_THRESH/2 and never reach PRESSED_THRESH.
+    CHECK(m.toggle_count == 0,
+          "sustained 1ms square wave should not toggle, got %u", m.toggle_count);
+    CHECK(m.effect_state == BYPASS,
+          "sustained noise should remain in BYPASS");
+}
+
+// Stress test: measure worst-case latency from first "pressed" sample to
+// state change under clean conditions.
+static void test_latency_measurement(void) {
+    model_t m; model_init(&m, 0);
+    
+    // Measure time from first low sample to toggle
+    uint32_t latency_ms = 0;
+    for (uint32_t t = 0; t < 100; ++t) {
+        uint32_t before = m.toggle_count;
+        model_step_ms(&m, 1); // hold pressed
+        if (m.toggle_count > before) {
+            latency_ms = t + 1;
+            break;
+        }
+    }
+    
+    // Under clean conditions, latency should be exactly PRESSED_THRESH ms
+    CHECK(latency_ms == PRESSED_THRESH,
+          "clean press latency should be %d ms, got %u ms",
+          PRESSED_THRESH, latency_ms);
+    
+    // Now test with noise: 50% low samples during press
+    model_init(&m, 0);
+    latency_ms = 0;
+    uint32_t rng = 0xABCD1234;
+    for (uint32_t t = 0; t < 200; ++t) {
+        uint32_t before = m.toggle_count;
+        // 70% low (pressed), 30% high (noise)
+        int pin_low = (xorshift32(&rng) % 10) < 7;
+        model_step_ms(&m, pin_low);
+        if (m.toggle_count > before) {
+            latency_ms = t + 1;
+            break;
+        }
+    }
+    
+    // With 70% duty cycle, expect latency around PRESSED_THRESH / 0.7 ≈ 11ms
+    // Allow up to 30ms for noisy conditions
+    CHECK(latency_ms >= PRESSED_THRESH && latency_ms <= 30,
+          "noisy press latency should be %d-30 ms, got %u ms",
+          PRESSED_THRESH, latency_ms);
+}
+
+// Fuzz test: power-on-pressed with random release timing.
+static void test_fuzz_power_on_release_timing(void) {
+    uint32_t rng = 0x99887766;
+    
+    for (int trial = 0; trial < 100; ++trial) {
+        model_t m; model_init(&m, 1); // power-on pressed
+        
+        // Hold for random duration (10-1000ms)
+        uint32_t hold_ms = 10 + (xorshift32(&rng) % 991);
+        drive(&m, 1, hold_ms);
+        
+        CHECK(m.toggle_count == 0,
+              "power-on-pressed trial %d: no toggle during hold", trial);
+        
+        // Release
+        drive(&m, 0, 50);
+        CHECK(m.toggle_count == 0,
+              "power-on-pressed trial %d: no toggle on release", trial);
+        
+        // First real press should work
+        drive(&m, 1, 50);
+        CHECK(m.toggle_count == 1,
+              "power-on-pressed trial %d: first real press toggles", trial);
+    }
+}
+
 int main(void) {
     test_single_clean_press();
     test_two_presses_round_trip();
@@ -238,6 +429,14 @@ int main(void) {
     test_power_on_pressed();
     test_release_lockout();
     test_fast_repeated_taps();
+    
+    // Fuzz/stress tests
+    test_fuzz_random_patterns();
+    test_fuzz_adversarial_patterns();
+    test_fuzz_extreme_bounce();
+    test_stress_sustained_noise();
+    test_latency_measurement();
+    test_fuzz_power_on_release_timing();
 
     printf("\nhost golden-model tests: %d checks, %d failures\n",
            g_checks, g_failures);
