@@ -32,6 +32,26 @@
 #define PRESSED_THRESH 8
 #define RELEASE_THRESH 25
 
+#ifndef SIM_RANDOM_NOISE_DURATION_MS
+#define SIM_RANDOM_NOISE_DURATION_MS 60000u
+#endif
+
+#ifndef SIM_ADVERSARIAL_CYCLES
+#define SIM_ADVERSARIAL_CYCLES 50
+#endif
+
+#ifndef SIM_EXTREME_BOUNCE_PRESSES
+#define SIM_EXTREME_BOUNCE_PRESSES 10
+#endif
+
+#ifndef SIM_EXTREME_BOUNCE_CHATTER_MS
+#define SIM_EXTREME_BOUNCE_CHATTER_MS 50
+#endif
+
+#ifndef SIM_SUSTAINED_NOISE_DURATION_MS
+#define SIM_SUSTAINED_NOISE_DURATION_MS 10000u
+#endif
+
 #define FOOTSW_PIN   0  // PB0
 #define LED_PIN      1  // PB1
 #define CD4053_PIN   2  // PB2
@@ -250,7 +270,7 @@ static void test_random_noise_resilience(void) {
     uint32_t before = g_led_changes;
     uint32_t rng = 0xDEADBEEF;
 
-    for (uint32_t t = 0; t < 60000; ++t) {
+    for (uint32_t t = 0; t < SIM_RANDOM_NOISE_DURATION_MS; ++t) {
         int pressed = (xorshift32(&rng) & 0xFF) < 128;
         footsw_drive(pressed, 1);
     }
@@ -265,7 +285,7 @@ static void test_adversarial_patterns(void) {
     if (sim_reset(0) != 0) { g_failures++; return; }
 
     uint32_t before = g_led_changes;
-    for (int cycle = 0; cycle < 50; ++cycle) {
+    for (int cycle = 0; cycle < SIM_ADVERSARIAL_CYCLES; ++cycle) {
         footsw_drive(1, PRESSED_THRESH - 1);
         footsw_drive(0, PRESSED_THRESH);
     }
@@ -274,13 +294,13 @@ static void test_adversarial_patterns(void) {
           g_led_changes - before);
 
     before = g_led_changes;
-    for (int cycle = 0; cycle < 50; ++cycle) {
+    for (int cycle = 0; cycle < SIM_ADVERSARIAL_CYCLES; ++cycle) {
         footsw_drive(1, PRESSED_THRESH + 1);
         footsw_drive(0, RELEASE_THRESH + 5);
     }
-    CHECK((g_led_changes - before) == 50,
-          "just-past-threshold presses should toggle, got %u",
-          g_led_changes - before);
+    CHECK((g_led_changes - before) == (uint32_t)SIM_ADVERSARIAL_CYCLES,
+          "just-past-threshold presses should toggle %u times, got %u",
+          (uint32_t)SIM_ADVERSARIAL_CYCLES, g_led_changes - before);
     CHECK(g_led_level == 0,
           "after even toggles LED should be dark, got %d", g_led_level);
 }
@@ -291,9 +311,9 @@ static void test_extreme_bounce(void) {
 
     uint32_t before = g_led_changes;
 
-    for (int press = 0; press < 10; ++press) {
+    for (int press = 0; press < SIM_EXTREME_BOUNCE_PRESSES; ++press) {
         uint32_t rng = 0x12345678u + (uint32_t)press;
-        for (int i = 0; i < 50; ++i) {
+        for (int i = 0; i < SIM_EXTREME_BOUNCE_CHATTER_MS; ++i) {
             int pressed = xorshift32(&rng) & 1;
             footsw_drive(pressed, 1);
         }
@@ -301,9 +321,9 @@ static void test_extreme_bounce(void) {
         footsw_drive(0, 40);
     }
 
-    CHECK((g_led_changes - before) == 10,
-          "extreme bounce should yield 10 toggles, got %u",
-          g_led_changes - before);
+    CHECK((g_led_changes - before) == (uint32_t)SIM_EXTREME_BOUNCE_PRESSES,
+          "extreme bounce should yield %u toggles, got %u",
+          (uint32_t)SIM_EXTREME_BOUNCE_PRESSES, g_led_changes - before);
 }
 
 // Sustained 1kHz chatter should never reach the threshold.
@@ -311,7 +331,7 @@ static void test_sustained_noise(void) {
     if (sim_reset(0) != 0) { g_failures++; return; }
 
     uint32_t before = g_led_changes;
-    for (uint32_t t = 0; t < 10000; ++t) {
+    for (uint32_t t = 0; t < SIM_SUSTAINED_NOISE_DURATION_MS; ++t) {
         int pressed = (t & 1) ? 1 : 0;
         footsw_drive(pressed, 1);
     }

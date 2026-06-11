@@ -30,7 +30,17 @@ SIMAVR_INC  ?= /usr/include/simavr
 SIM_CFLAGS   = -std=c11 -Wall -Wextra -I$(SIMAVR_INC)
 SIM_LIBS     = -lsimavr -lelf
 
-ANALYZE_CMD   ?= clang-tidy $(TARGET).c -- $(CFLAGS)
+AVR_IO_HEADER      := $(shell $(CC) -print-file-name=avr/io.h)
+AVR_LIBC_INCLUDE   := $(patsubst %/avr/, %, $(dir $(AVR_IO_HEADER)))
+AVR_GCC_INCLUDE    := $(shell $(CC) -print-file-name=include)
+AVR_ARCH           := $(shell $(CC) -mmcu=$(MCU) -dM -E - < /dev/null | awk '/__AVR_ARCH__/ { print $$3; exit }')
+CLANG_TIDY_FLAGS   ?= -target avr -mmcu=$(MCU) -DF_CPU=$(F_CPU) -D__AVR__ -D__AVR_ATtiny13A__ \
+                      -D__AVR_DEVICE_NAME__=$(MCU) $(if $(AVR_ARCH),-D__AVR_ARCH__=$(AVR_ARCH)) \
+                      -D__AVR_HAVE_PRR_PRTIM0 \
+                      -Wno-macro-redefined \
+                      $(if $(AVR_LIBC_INCLUDE),-I$(AVR_LIBC_INCLUDE)) \
+                      $(if $(AVR_GCC_INCLUDE),-I$(AVR_GCC_INCLUDE))
+ANALYZE_CMD        ?= clang-tidy $(TARGET).c -- $(CLANG_TIDY_FLAGS)
 
 CFLAGS  = -mmcu=$(MCU) -DF_CPU=$(F_CPU) -Os \
           -fshort-enums -funsigned-char \

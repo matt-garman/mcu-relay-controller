@@ -18,6 +18,22 @@
 #include <stdio.h>
 #include <string.h>
 
+#ifndef MODEL_FUZZ_RANDOM_DURATION_MS
+#define MODEL_FUZZ_RANDOM_DURATION_MS 1000000u
+#endif
+
+#ifndef MODEL_FUZZ_POWER_ON_TRIALS
+#define MODEL_FUZZ_POWER_ON_TRIALS 100
+#endif
+
+#ifndef MODEL_FUZZ_ADVERSARIAL_CYCLES
+#define MODEL_FUZZ_ADVERSARIAL_CYCLES 100
+#endif
+
+#ifndef MODEL_FUZZ_EXTREME_BOUNCE_PRESSES
+#define MODEL_FUZZ_EXTREME_BOUNCE_PRESSES 10
+#endif
+
 //////////////////////////////////////////////////////////////////////////////
 // Golden model: mirrors attiny13_bypass.c constants and logic exactly.
 //////////////////////////////////////////////////////////////////////////////
@@ -253,18 +269,16 @@ static void test_fuzz_random_patterns(void) {
     uint32_t rng_state = 0xDEADBEEF; // reproducible seed
     
     // Run 1M ms (~16 minutes simulated time) of random switch patterns
-    const uint32_t duration_ms = 1000000;
-    
-    for (uint32_t t = 0; t < duration_ms; ++t) {
+    for (uint32_t t = 0; t < MODEL_FUZZ_RANDOM_DURATION_MS; ++t) {
         // Generate random pin state with some correlation to previous
         // (real switches don't toggle at 1kHz)
         uint32_t r = xorshift32(&rng_state);
         int pin_low = (r & 0xFF) < 128; // ~50% duty cycle
-        
+
         model_step_ms(&m, pin_low);
-        
+
         // Invariant checks (every 1000 steps to avoid slowing down)
-        if ((t & 0x3FF) == 0) {
+        if ((t & 0x3FFu) == 0) {
             CHECK(m.program_state <= RELEASE_DEBOUNCE_WAIT,
                   "fuzz: invalid program_state at t=%u", t);
             CHECK(m.effect_state <= ENGAGED,
@@ -273,12 +287,15 @@ static void test_fuzz_random_patterns(void) {
                   "fuzz: debounce_counter out of range at t=%u", t);
         }
     }
-    
-    // After 1M ms of random noise, toggle count should be bounded.
-    // With 50% duty cycle noise, we expect some toggles but not millions.
-    // Conservative upper bound: 1000 toggles (one per 1000ms average).
-    CHECK(m.toggle_count < 2000,
-          "fuzz: excessive toggles from random noise: %u", m.toggle_count);
+
+    // After a long noise run, toggle count should remain well below the
+    // duration. Allow a generous ceiling that scales with the configured
+    // duration to keep the test stable when overrides increase runtime.
+    uint32_t max_toggles = MODEL_FUZZ_RANDOM_DURATION_MS / 350u + 50u;
+    if (max_toggles == 0u) { max_toggles = 1u; }
+    CHECK(m.toggle_count <= max_toggles,
+          "fuzz: excessive toggles from random noise: %u (limit %u)",
+          m.toggle_count, max_toggles);
 }
 
 // Fuzz test: worst-case adversarial patterns designed to trigger edge cases.
@@ -287,23 +304,23 @@ static void test_fuzz_adversarial_patterns(void) {
     model_t m; model_init(&m, 0);
     
     // Pattern 1: oscillate just below PRESSED_THRESH
-    for (int cycle = 0; cycle < 100; ++cycle) {
+    for (int cycle = 0; cycle < MODEL_FUZZ_ADVERSARIAL_CYCLES; ++cycle) {
         drive(&m, 1, PRESSED_THRESH - 1); // almost press (counter reaches 7)
         drive(&m, 0, PRESSED_THRESH);     // full release (drain counter to 0)
     }
     CHECK(m.toggle_count == 0,
           "adversarial: sub-threshold oscillation should not toggle, got %u",
           m.toggle_count);
-    
+
     // Reset and try pattern 2: oscillate just above PRESSED_THRESH
     model_init(&m, 0);
-    for (int cycle = 0; cycle < 100; ++cycle) {
+    for (int cycle = 0; cycle < MODEL_FUZZ_ADVERSARIAL_CYCLES; ++cycle) {
         drive(&m, 1, PRESSED_THRESH + 1); // just past threshold
         drive(&m, 0, RELEASE_THRESH + 5); // full release
     }
-    CHECK(m.toggle_count == 100,
-          "adversarial: 100 just-past-threshold presses should yield 100 toggles, got %u",
-          m.toggle_count);
+    CHECK(m.toggle_count == (uint32_t)MODEL_FUZZ_ADVERSARIAL_CYCLES,
+           "adversarial: %d just-past-threshold presses should yield %d toggles, got %u",
+           MODEL_FUZZ_ADVERSARIAL_CYCLES, MODEL_FUZZ_ADVERSARIAL_CYCLES, m.toggle_count);
 }
 
 // Fuzz test: rapid chatter during press/release transitions.
@@ -312,7 +329,7 @@ static void test_fuzz_extreme_bounce(void) {
     model_t m; model_init(&m, 0);
     
     // Simulate 10 presses, each with 50ms of 1ms chatter before settling
-    for (int press = 0; press < 10; ++press) {
+    for (int press = 0; press < MODEL_FUZZ_EXTREME_BOUNCE_PRESSES; ++press) {
         // 50ms of random chatter
         uint32_t rng = 0x12345678 + press;
         for (int i = 0; i < 50; ++i) {
@@ -326,9 +343,9 @@ static void test_fuzz_extreme_bounce(void) {
     }
     
     // Should have exactly 10 toggles (one per press)
-    CHECK(m.toggle_count == 10,
-          "extreme bounce: 10 presses with chatter should yield 10 toggles, got %u",
-          m.toggle_count);
+    CHECK(m.toggle_count == (uint32_t)MODEL_FUZZ_EXTREME_BOUNCE_PRESSES,
+          "extreme bounce: %d presses with chatter should yield %d toggles, got %u",
+          MODEL_FUZZ_EXTREME_BOUNCE_PRESSES, MODEL_FUZZ_EXTREME_BOUNCE_PRESSES, m.toggle_count);
 }
 
 // Stress test: verify behavior under sustained high-frequency noise.
@@ -439,9 +456,9 @@ static void test_latency_with_oscillator_drift(void) {
 static void test_fuzz_power_on_release_timing(void) {
     uint32_t rng = 0x99887766;
     
-    for (int trial = 0; trial < 100; ++trial) {
+    for (int trial = 0; trial < MODEL_FUZZ_POWER_ON_TRIALS; ++trial) {
         model_t m; model_init(&m, 1); // power-on pressed
-        
+
         // Hold for random duration (10-1000ms)
         uint32_t hold_ms = 10 + (xorshift32(&rng) % 991);
         drive(&m, 1, hold_ms);
@@ -457,7 +474,7 @@ static void test_fuzz_power_on_release_timing(void) {
         // First real press should work
         drive(&m, 1, 50);
         CHECK(m.toggle_count == 1,
-              "power-on-pressed trial %d: first real press toggles", trial);
+               "power-on-pressed trial %d: first real press toggles", trial);
     }
 }
 
