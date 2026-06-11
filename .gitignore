@@ -1,2 +1,6 @@
 # vim backup files
 *~
+
+# compilation artifacts
+*.hex
+*.elf
