@@ -62,6 +62,8 @@
 #define LED_PIN      1  // PB1
 #define CD4053_PIN   2  // PB2
 #define TIMSK_MEM_ADDR 0x59  // TIMSK0/TIMSK I/O addr 0x39 + SFR offset 0x20
+#define DDRB_MEM_ADDR  0x37  // DDRB I/O addr 0x17 + SFR offset 0x20
+#define PORTB_MEM_ADDR 0x38  // PORTB I/O addr 0x18 + SFR offset 0x20
 
 // --- global sim state shared with output-watch callbacks -------------------
 static avr_t      *g_avr = NULL;
@@ -447,6 +449,99 @@ static void test_watchdog_backstop_documented(void) {
           "simavr cannot model WDT reset; verify backstop on hardware (see comment)");
 }
 #endif
+
+// Register corruption recovery: corrupt DDRB/PORTB to trigger the firmware's
+// sanity-check force_wdt_reset() path.
+//
+// On ATtiny85, simavr models WDT reset, so the firmware recovers and
+// reinitializes in BYPASS.  On ATtiny13, the WDT is not fully modeled, so the
+// weaker property (CPU enters stuck state without wedging simavr) is checked.
+static void test_register_corruption_recovery(void) {
+    if (sim_reset(0) != 0) { g_failures++; return; }
+
+    footsw_set(1); run_ms(50); footsw_set(0); run_ms(50);
+    CHECK(g_led_level == 1, "corruption test: normal press engages");
+
+    // Corrupt DDRB: clear the LED output bit, making PB1 an input.
+    // This violates the main-loop sanity check.
+    avr_core_watch_write(g_avr, DDRB_MEM_ADDR,
+                         g_avr->data[DDRB_MEM_ADDR] & ~(1 << LED_PIN));
+
+#ifdef TARGET_T85
+    // ATtiny85: WDT reset is emulated.  Firmware recovers via reset.
+    // The LED returning to dark proves the MCU reset and init() ran.
+    run_ms(500);
+    CHECK(g_led_level == 0,
+          "corruption test: WDT reset recovered, LED dark (reinit BYPASS)");
+    // Post-reset responsiveness for the corruption path has the same
+    // PINB-reset-to-0x00 limitation documented in the WDT backstop test.
+#else
+    // ATtiny13: simavr does not emulate WDT reset.  After corruption, the
+    // firmware hits the sanity check, calls force_wdt_reset() (cli + busy
+    // loop).  Verify the CPU enters the stuck state without wedging simavr.
+    g_saw_sleep = 0;
+    run_ms(200);
+    CHECK(g_saw_sleep == 0,
+          "corruption test: ATtiny13 in stuck force_wdt_reset loop "
+          "(no sleep with cli active)");
+#endif
+}
+
+// Oscillator drift tolerance: run the round-trip test at ±10% CPU frequency
+// to verify debounce timing holds across the clock tolerance range.
+static void test_oscillator_drift_tolerance(void) {
+    static const uint32_t freqs[] = {
+        (uint32_t)(F_CPU_HZ * 0.9),
+        (uint32_t)(F_CPU_HZ * 1.1),
+    };
+
+    for (int f = 0; f < 2; ++f) {
+        if (sim_reset(0) != 0) { g_failures++; return; }
+        g_avr->frequency = freqs[f];
+
+        CHECK(g_led_level == 0, "drift %d: power-on BYPASS", f);
+
+        footsw_set(1); run_ms(50); footsw_set(0); run_ms(50);
+        CHECK(g_led_level == 1, "drift %d: press engages", f);
+        footsw_set(1); run_ms(50); footsw_set(0); run_ms(50);
+        CHECK(g_led_level == 0, "drift %d: return to BYPASS", f);
+    }
+}
+
+// Asymmetric EMI bursts: 50ms ON at 500Hz, 200ms OFF.  Models cell-phone
+// TDMA handshake interference near audio gear.
+static void test_asymmetric_emi_bursts(void) {
+    if (sim_reset(0) != 0) { g_failures++; return; }
+
+    uint32_t changes_before = g_led_changes;
+
+    for (int burst = 0; burst < 240; ++burst) {
+        for (int i = 0; i < 50; ++i) { footsw_drive(i & 1, 1); }
+        footsw_drive(0, 200);
+    }
+
+    uint32_t toggles = g_led_changes - changes_before;
+    CHECK(toggles == 0, "asymmetric EMI: no toggle from bursty interference");
+    CHECK(g_led_level == 0, "asymmetric EMI: remained dark (BYPASS)");
+}
+
+// Power-on robustness: simulate multiple power cycles, verify consistent
+// BYPASS initialization and responsiveness.
+static void test_power_on_robustness(void) {
+    for (int boot = 0; boot < 30; ++boot) {
+        if (sim_reset(0) != 0) { g_failures++; return; }
+
+        CHECK(g_led_level == 0, "power-on boot %d: always BYPASS", boot);
+
+        run_ms(50);
+        CHECK(g_led_level == 0, "power-on boot %d: stays dark idle", boot);
+
+        footsw_set(1); run_ms(50); footsw_set(0); run_ms(50);
+        CHECK(g_led_level == 1, "power-on boot %d: press engages", boot);
+        footsw_set(1); run_ms(50); footsw_set(0); run_ms(50);
+        CHECK(g_led_level == 0, "power-on boot %d: return to BYPASS", boot);
+    }
+}
 #endif // !TRACE
 
 //////////////////////////////////////////////////////////////////////////////
@@ -513,6 +608,10 @@ int main(void) {
 #else
     test_watchdog_backstop_documented();
 #endif
+    test_register_corruption_recovery();
+    test_oscillator_drift_tolerance();
+    test_asymmetric_emi_bursts();
+    test_power_on_robustness();
 
     if (g_avr) { avr_terminate(g_avr); free(g_avr); }
 

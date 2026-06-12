@@ -478,6 +478,67 @@ static void test_fuzz_power_on_release_timing(void) {
     }
 }
 
+// Power-on robustness: multiple random power-on scenarios verify consistent,
+// correct initialization in BYPASS with the right state machine setup.
+static void test_power_on_robustness(void) {
+    uint32_t rng = 0xCAFECAFE;
+    
+    for (int boot = 0; boot < 50; ++boot) {
+        // Randomize power-on state: 0=not pressed, 1=held
+        int held = xorshift32(&rng) & 1;
+        model_t m; model_init(&m, held);
+        
+        CHECK(m.effect_state == BYPASS,
+              "power-on robust boot %d: always BYPASS", boot);
+        
+        if (held) {
+            CHECK(m.program_state == RELEASE_DEBOUNCE_WAIT,
+                  "power-on held boot %d: in RELEASE wait", boot);
+            CHECK(m.debounce_counter == RELEASE_THRESH,
+                  "power-on held boot %d: counter at release threshold", boot);
+            // Release the held switch
+            drive(&m, 0, 50);
+            CHECK(m.toggle_count == 0,
+                  "power-on held boot %d: no toggle on release", boot);
+            CHECK(m.program_state == PRESS_DEBOUNCE_WAIT,
+                  "power-on held boot %d: rearmed after release", boot);
+        } else {
+            CHECK(m.program_state == PRESS_DEBOUNCE_WAIT,
+                  "power-on normal boot %d: in PRESS wait", boot);
+            CHECK(m.debounce_counter == 0,
+                  "power-on normal boot %d: counter zero", boot);
+        }
+        
+        // Verify a clean press works after boot
+        drive(&m, 1, 50); drive(&m, 0, 50);
+        CHECK(m.toggle_count == 1,
+              "power-on robust boot %d: first press toggles", boot);
+    }
+}
+
+// Asymmetric EMI bursts: 50ms of 500Hz square wave, 200ms silence.
+// Models cell-phone TDMA handshake interference near audio gear.
+static void test_asymmetric_emi_bursts(void) {
+    model_t m; model_init(&m, 0);
+    
+    // 240 bursts = 60 seconds of pattern (50ms ON, 200ms OFF)
+    for (int burst = 0; burst < 240; ++burst) {
+        // 50ms noise burst (1ms alternating = 500Hz square wave)
+        for (int i = 0; i < 50; ++i) {
+            model_step_ms(&m, i & 1);
+        }
+        // 200ms silence (switch released)
+        for (int i = 0; i < 200; ++i) {
+            model_step_ms(&m, 0);
+        }
+    }
+    
+    CHECK(m.toggle_count == 0,
+          "asymmetric EMI bursts: no toggle after 60s of bursty interference");
+    CHECK(m.effect_state == BYPASS,
+          "asymmetric EMI bursts: remained in BYPASS");
+}
+
 int main(void) {
     test_single_clean_press();
     test_two_presses_round_trip();
@@ -497,6 +558,8 @@ int main(void) {
     test_latency_measurement();
     test_latency_with_oscillator_drift();
     test_fuzz_power_on_release_timing();
+    test_power_on_robustness();
+    test_asymmetric_emi_bursts();
 
     printf("\nhost golden-model tests: %d checks, %d failures\n",
            g_checks, g_failures);

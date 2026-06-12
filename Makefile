@@ -61,7 +61,7 @@ CFLAGS  = -mmcu=$(MCU) -DF_CPU=$(F_CPU) -Os \
 
 LDFLAGS = -mmcu=$(MCU) -Wl,--gc-sections
 
-.PHONY: all clean size readfuses fuses flash program test test-host test-sim test-sim-t85 trace analyze \
+.PHONY: all clean size readfuses fuses flash program test test-host test-sim test-sim-t85 trace analyze coverage coverage-clean \
         size85 fuses85 flash85 program85
 
 all: $(TARGET).hex size
@@ -181,6 +181,22 @@ analyze: $(TARGET).c
 		echo "No static analysis tool available. Set ANALYZE_CMD=... or install clang-tidy / avr-gcc with -fanalyzer."; \
 		exit 1; \
 	fi
+
+# Code coverage of the golden model (exercises the same algorithm as the firmware).
+# Generates gcov line/branch coverage for the host-compiled reference model.
+COVERAGE_DIR = coverage
+
+coverage:
+	@mkdir -p $(COVERAGE_DIR)
+	$(HOSTCC) $(HOST_CFLAGS) --coverage test/test_logic_host.c -o $(COVERAGE_DIR)/test_logic_host
+	cd $(COVERAGE_DIR) && ./test_logic_host
+	cd $(COVERAGE_DIR) && gcov -b test_logic_host.c 2>/dev/null || true
+	@echo "Coverage report: $(COVERAGE_DIR)/test_logic_host.c.gcov"
+	@echo "For HTML report: lcov --capture -d $(COVERAGE_DIR) -o $(COVERAGE_DIR)/coverage.info && genhtml $(COVERAGE_DIR)/coverage.info -o $(COVERAGE_DIR)/html"
+
+coverage-clean:
+	rm -rf $(COVERAGE_DIR)
+	find . -name '*.gcda' -o -name '*.gcno' | xargs rm -f
 
 
 # vim: tw=0 nowrap
