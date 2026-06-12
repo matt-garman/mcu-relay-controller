@@ -177,7 +177,7 @@ ISR(TIM0_COMPA_vect) {
 // reset-loop risk (on a WDT reset the WDT stays enabled with the prior
 // (possibly short) timeout, so could potentially re-trigger before being
 // cleared in init())
-void wdt_init_early(void) __attribute__((naked, used, section(".init3")));
+void wdt_init_early(void) __attribute__((used, section(".init3")));
 void wdt_init_early(void) {
     MCUSR = 0;     // clear all reset-cause flags (incl. WDRF)
     wdt_disable(); // turn the dog off until init() reconfigures it
