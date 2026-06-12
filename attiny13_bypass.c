@@ -105,12 +105,12 @@ volatile uint8_t debounce_counter_;
 // infinite-loop function to force watchdog reset
 //
 // this function is designed for critical, unrecoverable errors (presumably by
-// ultra-rare events, e.g. cosmic rays, extreme EMI); so it deliberately drops
-// the WDT timer down to 15ms to be a near-instant WDC reset trigger (as
-// opposed to waiting the standard 250ms)
+// ultra-rare events, e.g. cosmic rays, extreme EMI)
+//
+// IMPORTANT: this function relies on the watchdog being active; calling this
+// without an active WDT will lock up the MCU
 __attribute__((noreturn)) static void force_wdt_reset(void) {
     cli();
-    wdt_enable(WDTO_15MS);
     while (1) {}
 }
 
@@ -173,17 +173,6 @@ ISR(TIM0_COMPA_vect) {
 }
 
 
-// Disable the WDT in .init3, before main()/init() runs.  This is to avoid
-// reset-loop risk (on a WDT reset the WDT stays enabled with the prior
-// (possibly short) timeout, so could potentially re-trigger before being
-// cleared in init())
-void wdt_init_early(void) __attribute__((used, section(".init3")));
-void wdt_init_early(void) {
-    MCUSR = 0;     // clear all reset-cause flags (incl. WDRF)
-    wdt_disable(); // turn the dog off until init() reconfigures it
-}
-
-
 // high-level initialization
 // called at power-on, and after RESET (e.g. due to watchdog timeout)
 static void init(void) {
@@ -201,7 +190,18 @@ static void init(void) {
 
     // Watchdog: ~250ms timeout in system-reset mode. wdt_enable() sets WDE
     // (reset mode) for us. WDTO_250MS is the nearest standard step.
-    wdt_enable(WDTO_250MS);
+    //
+    // NOTE: the AVR watchdog timer uses a separate oscillator that is
+    // independant of the system clock; it has *very* loose tolerance.  We
+    // should expect our 250ms watchdog timeout to be 100-350ms in practice.
+    //
+    // We need to ensure that we don't create a WDT reset loop by making
+    // init() so long that the WDT bites.  At the time of this writing, init()
+    // compiles to 100s of instructions, so at 1.2 / 1.0 MHz, should complete
+    // in 100s of microseconds - a generous margin even with a 100ms WDT.
+    wdt_reset(); // pet the dog (init() could be called from previous WDT timeout)
+    MCUSR &= (uint8_t)~(1 << WDRF); // must clear WDRF before WDE can be cleared
+    wdt_enable(WDTO_250MS); // (re-)arm the WDT
 
     // make the 1.2MHz system clock explicit at runtime
     // (9.6MHz internal RC / 8). The CKDIV8 fuse already does this at
@@ -296,8 +296,7 @@ int main(void) {
         if ( (program_state_ > RELEASE_DEBOUNCE_WAIT) ||
                 (effect_state_ > ENGAGED) ||
                 (timer_isr_called_ > TIMER_ISR_NOT_CALLED) ||
-                // assert critical pin directions hold: LED & CD4053
-                // outputs, footswitch input.
+                // assert critical pin directions hold: LED & CD4053 outputs, footswitch input
                 ((DDRB & ((1 << LED_PIN) | (1 << CD4053_PIN))) !=
                  ((1 << LED_PIN) | (1 << CD4053_PIN))) ||
                 ((DDRB & (1 << FOOTSW_PIN)) != 0) ||
