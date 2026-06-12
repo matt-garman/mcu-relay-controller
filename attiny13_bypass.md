@@ -368,7 +368,7 @@ main() function:
             // waiting for the footswitch to be press-debounced
             case PRESS_DEBOUNCE_WAIT: {
                 // check for press-debounced condition
-                if (debounce_counter_ >= PRESSED_THRESH)) {
+                if (debounce_counter_ >= PRESSED_THRESH) {
                     debounce_counter_ = RELEASE_THRESH;
                     program_state_ = RELEASE_DEBOUNCE_WAIT;
                     if (BYPASS == effect_state_) { set_engaged_state(); }

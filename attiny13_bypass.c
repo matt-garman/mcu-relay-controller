@@ -162,8 +162,8 @@ ISR(TIM0_COMPA_vect) {
     timer_isr_called_ = TIMER_ISR_CALLED; // used by main() to reset WDT
 
     // saturating integrator update
-    // PBO0 zero (low) == switch closed
-    // PBO0 one (high) == switch open
+    // PB0 zero (low) == switch closed
+    // PB0 one (high) == switch open
     if (0 == digital_read_footswitch_pin()) {
         if (debounce_counter_ < RELEASE_THRESH) { ++debounce_counter_; }
     }
@@ -260,12 +260,12 @@ static void init(void) {
 
 
     // Timer0: CTC mode (WGM01=1), prescaler /8, compare match every 1ms.
-    TCCR0A  = (1 << WGM01);     // CTC: clear timer on compare A
-    TCCR0B  = (1 << CS01);      // prescaler = clk/8
-    OCR0A   = TIMER0_OCR0A_1MS; // 149 -> 1ms tick at 1.2MHz/8
-    TCNT0   = 0;                // start count from 0
-    TIMSK0  = (1 << OCIE0A);    // enable Compare Match A interrupt
-    TIFR0  |= (1 << OCF0A);     // explicitly clear TIFR0's OCF0A (prevent ISR firing immediately below after sei() from state compare-match flag from WDT reset)
+    TCCR0A = (1 << WGM01);     // CTC: clear timer on compare A
+    TCCR0B = (1 << CS01);      // prescaler = clk/8
+    OCR0A  = TIMER0_OCR0A_1MS; // 149 -> 1ms tick at 1.2MHz/8
+    TCNT0  = 0;                // start count from 0
+    TIMSK0 = (1 << OCIE0A);    // enable Compare Match A interrupt
+    TIFR0  = (1 << OCF0A);     // explicitly clear TIFR0's OCF0A (prevent ISR firing immediately below after sei() from state compare-match flag from WDT reset)
 
     // CPU sleeps in IDLE between 1ms ticks: core halts, but Timer0 keeps
     // running so the tick ISR still wakes us. (Deeper modes would stop
@@ -280,7 +280,7 @@ static void init(void) {
 
     // init done, now re-enable interrupts
     sei();
-    __asm__ __volatile__("" ::: "memory"); // belt-and-suspenders to prevent compiler reordering acros sei()
+    __asm__ __volatile__("" ::: "memory"); // belt-and-suspenders to prevent compiler reordering across sei()
 }
 
 
@@ -332,7 +332,7 @@ int main(void) {
             // consider pausing interrupts to read the values into
             // local copy variables first - but that adds complexity
             // when the worst-case issue is an extra 1ms delay -
-            // imperceptable and therefore acceptable for this
+            // imperceptible and therefore acceptable for this
             // design
 
             // waiting for the footswitch to be press-debounced
