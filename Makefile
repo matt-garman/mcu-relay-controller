@@ -273,6 +273,7 @@ clean:
 		test/test_model_check test/test_symbolic test/test_fuses \
 		test/test_symbolic.bc \
 		bypass_trace.vcd $(TARGET).plist
+	rm -rf test/klee-out-* test/klee-last
 
 # ============================================================================
 # FLASH / FUSES -- ATtiny13a (hardware)
