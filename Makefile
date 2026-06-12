@@ -370,11 +370,17 @@ test/test_symbolic: test/test_symbolic.c test/bypass_config_host.h bypass_config
 # (only if KLEE is installed). KLEE explores the symbolic input domain and
 # proves the assertions with an SMT solver rather than by enumeration.
 .PHONY: test-symbolic-klee
-KLEE        ?= klee
-KLEE_CLANG  ?= clang
+# Absolute paths to the brew-installed KLEE and its matching LLVM clang. Using
+# absolute defaults so the target works even when `make`'s recipe shell does not
+# have brew's shellenv on PATH (an interactive shell may, /bin/sh may not).
+# Using llvm@16's clang (KLEE's own LLVM) to emit the bitcode avoids the
+# host/module target-triple mismatch warning seen with /usr/bin/clang.
+KLEE        ?= /home/linuxbrew/.linuxbrew/bin/klee
+KLEE_CLANG  ?= /home/linuxbrew/.linuxbrew/opt/llvm@16/bin/clang
+KLEE_INC    := /home/linuxbrew/.linuxbrew/Cellar/klee/3.2_3/include
 test-symbolic-klee:
 	@if command -v $(KLEE) >/dev/null 2>&1 && command -v $(KLEE_CLANG) >/dev/null 2>&1; then \
-		$(KLEE_CLANG) -DUSE_KLEE -I$(SIMAVR_INC) -Itest -emit-llvm -c -g -O0 \
+		$(KLEE_CLANG) -DUSE_KLEE -I$(KLEE_INC) -I$(SIMAVR_INC) -Itest -emit-llvm -c -g -O0 \
 			test/test_symbolic.c -o test/test_symbolic.bc && \
 		$(KLEE) --exit-on-error test/test_symbolic.bc; \
 	else \

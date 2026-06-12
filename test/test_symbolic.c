@@ -192,20 +192,30 @@ static void check_step_properties(state_t s, int pin_low) {
 
 int main(void) {
 #ifdef USE_KLEE
-    state_t s;
-    int pin_low;
-    klee_make_symbolic(&s.program_state,   sizeof s.program_state,   "program_state");
-    klee_make_symbolic(&s.effect_state,    sizeof s.effect_state,    "effect_state");
-    klee_make_symbolic(&s.debounce_counter,sizeof s.debounce_counter,"debounce_counter");
-    klee_make_symbolic(&pin_low,           sizeof pin_low,           "pin_low");
+    // NOTE: klee_make_symbolic() must be given a whole top-level memory object
+    // and its FULL size -- KLEE resolves the pointer to its underlying
+    // allocation and rejects a size that doesn't match (you cannot make an
+    // individual struct field symbolic piecemeal: passing &s.program_state with
+    // sizeof(field) triggers "Wrong size given to klee_make_symbolic" because
+    // the object KLEE finds is the whole `state_t s`). So mark standalone
+    // scalars symbolic, then assemble the struct from them.
+    uint8_t program_state;
+    uint8_t effect_state;
+    uint8_t debounce_counter;
+    int     pin_low;
+    klee_make_symbolic(&program_state,   sizeof program_state,   "program_state");
+    klee_make_symbolic(&effect_state,    sizeof effect_state,    "effect_state");
+    klee_make_symbolic(&debounce_counter,sizeof debounce_counter,"debounce_counter");
+    klee_make_symbolic(&pin_low,         sizeof pin_low,         "pin_low");
 
     // Constrain to the valid domain (the firmware's invariants guarantee these
     // ranges; the model-checker proves reachability stays inside them).
-    klee_assume(s.program_state <= RELEASE_DEBOUNCE_WAIT);
-    klee_assume(s.effect_state  <= ENGAGED);
-    klee_assume(s.debounce_counter <= RELEASE_THRESH);
+    klee_assume(program_state <= RELEASE_DEBOUNCE_WAIT);
+    klee_assume(effect_state  <= ENGAGED);
+    klee_assume(debounce_counter <= RELEASE_THRESH);
     klee_assume(pin_low == 0 || pin_low == 1);
 
+    state_t s = { program_state, effect_state, debounce_counter };
     check_step_properties(s, pin_low);
     return 0;
 #else
