@@ -7,19 +7,31 @@ OBJCOPY  = avr-objcopy
 SIZE     = avr-size
 AVRDUDE  = avrdude
 
+# ATtiny85 variant: same firmware source, different MCU/flags
+MCU85      = attiny85
+F_CPU85    = 1000000UL
+TARGET85   = attiny13_bypass_t85
+
 # Programmer settings.
 # PROGRAMMER: "51 AVR USB ISP ASP" dongle is a USBasp clone -> usbasp.
 # AVRDUDE_PART: avrdude's short name for the ATtiny13/13a.
 # Override on the command line if needed, e.g.:
 #   make flash PROGRAMMER=usbtiny
 PROGRAMMER   ?= usbasp
-AVRDUDE_PART ?= t13
+AVRDUDE_PART   ?= t13
+AVRDUDE_PART85 ?= t85
 
 # Fuse bytes for this design (verified bit-by-bit; see attiny13_bypass.c header):
 #   lfuse=0x6A : SPIEN on, CKDIV8 on (1.2MHz), SUT=14CK+64ms, int 9.6MHz RC
 #   hfuse=0xFB : 2.7V brown-out detection enabled; RSTDISBL/DWEN left safe
 LFUSE = 0x6a
 HFUSE = 0xfb
+
+# ATtiny85 fuse bytes:
+#   lfuse=0x62 : CKDIV8 on (1.0MHz), CKOUT off, SUT=14CK+64ms, int 8MHz RC
+#   hfuse=0xDA : 2.7V BOD, SPIEN on, RSTDISBL/DWEN/WDTON/EESAVE safe
+LFUSE85 = 0x62
+HFUSE85 = 0xdd
 
 AVRDUDE_FLAGS = -c $(PROGRAMMER) -p $(AVRDUDE_PART)
 
@@ -49,7 +61,8 @@ CFLAGS  = -mmcu=$(MCU) -DF_CPU=$(F_CPU) -Os \
 
 LDFLAGS = -mmcu=$(MCU) -Wl,--gc-sections
 
-.PHONY: all clean size readfuses fuses flash program test test-host test-sim trace analyze
+.PHONY: all clean size readfuses fuses flash program test test-host test-sim test-sim-t85 trace analyze \
+        size85 fuses85 flash85 program85
 
 all: $(TARGET).hex size
 
@@ -62,9 +75,37 @@ $(TARGET).hex: $(TARGET).elf
 size: $(TARGET).elf
 	$(SIZE) --mcu=$(MCU) -C $<
 
+# --- ATtiny85 variant --------------------------------------------------------
+
+$(TARGET85).elf: $(TARGET).c
+	$(CC) -mmcu=$(MCU85) -DF_CPU=$(F_CPU85) -Os \
+		-fshort-enums -funsigned-char \
+		-ffunction-sections -fdata-sections \
+		-Werror -Wall -Wextra -std=c11 \
+		-Wl,--gc-sections -o $@ $<
+
+$(TARGET85).hex: $(TARGET85).elf
+	$(OBJCOPY) -O ihex -R .eeprom $< $@
+
+size85: $(TARGET85).elf
+	$(SIZE) --mcu=$(MCU85) -C $<
+
+fuses85:
+	$(AVRDUDE) -c $(PROGRAMMER) -p $(AVRDUDE_PART85) \
+		-U lfuse:w:$(LFUSE85):m \
+		-U hfuse:w:$(HFUSE85):m
+
+flash85: $(TARGET85).hex
+	$(AVRDUDE) -c $(PROGRAMMER) -p $(AVRDUDE_PART85) -U flash:w:$(TARGET85).hex:i
+
+program85: fuses85 flash85
+
+# --- Clean ------------------------------------------------------------------
+
 clean:
 	rm -f $(TARGET).elf $(TARGET).hex \
-		test/test_logic_host test/test_sim test/test_trace \
+		$(TARGET85).elf $(TARGET85).hex \
+		test/test_logic_host test/test_sim test/test_sim_t85 test/test_trace \
 		bypass_trace.vcd
 
 # Read and print the currently programmed fuse bytes (safe, read-only).
@@ -89,8 +130,8 @@ program: fuses flash
 
 # --- Tests -----------------------------------------------------------------
 
-# Run all pre-hardware tests: host golden-model + simavr firmware sim.
-test: test-host test-sim
+# Run all pre-hardware tests: host golden-model + simavr firmware sim (both MCUs).
+test: test-host test-sim test-sim-t85
 
 # Host-compiled golden-model unit tests (no AVR; fast logic verification).
 test-host: test/test_logic_host
@@ -106,6 +147,18 @@ test-sim: test/test_sim
 
 test/test_sim: test/test_sim.c $(TARGET).elf
 	$(HOSTCC) $(SIM_CFLAGS) $< -o $@ $(SIM_LIBS)
+
+# ATtiny85 simavr integration tests: same test harness, different MCU and firmware.
+test-sim-t85: test/test_sim_t85
+	./test/test_sim_t85
+
+test/test_sim_t85: test/test_sim.c $(TARGET85).elf
+	$(HOSTCC) $(SIM_CFLAGS) \
+		-DFW_PATH=\"$(TARGET85).elf\" \
+		-DMCU_NAME=\"attiny85\" \
+		-DF_CPU_HZ=1000000UL \
+		-DTARGET_T85 \
+		$< -o $@ $(SIM_LIBS)
 
 # Generate a GTKWave-viewable waveform of PB0/PB1/PB2 (bypass_trace.vcd).
 # Build a TRACE-enabled variant of the sim harness and run it.

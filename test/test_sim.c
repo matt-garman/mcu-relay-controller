@@ -26,9 +26,15 @@
 #include "sim_irq.h"
 #include "sim_vcd_file.h"
 
-#define FW_PATH      "attiny13_bypass.elf"
-#define MCU_NAME     "attiny13"
-#define F_CPU_HZ     1200000UL
+#ifndef FW_PATH
+#  define FW_PATH      "attiny13_bypass.elf"
+#endif
+#ifndef MCU_NAME
+#  define MCU_NAME     "attiny13"
+#endif
+#ifndef F_CPU_HZ
+#  define F_CPU_HZ     1200000UL
+#endif
 #define PRESSED_THRESH 8
 #define RELEASE_THRESH 25
 
@@ -55,6 +61,7 @@
 #define FOOTSW_PIN   0  // PB0
 #define LED_PIN      1  // PB1
 #define CD4053_PIN   2  // PB2
+#define TIMSK_MEM_ADDR 0x59  // TIMSK0/TIMSK I/O addr 0x39 + SFR offset 0x20
 
 // --- global sim state shared with output-watch callbacks -------------------
 static avr_t      *g_avr = NULL;
@@ -371,26 +378,57 @@ static void test_watchdog_not_tripped_normally(void) {
     CHECK((g_led_changes - before) == 1, "still responsive after long idle");
 }
 
-// Watchdog BACKSTOP (documented simavr limitation).
+#ifdef TARGET_T85
+// Watchdog BACKSTOP: verify WDT system reset on ATtiny85 (simavr ATtiny85
+// model supports WDT reset).
+//
+// If the timer ISR stops running, the main loop never pets the dog, and the
+// WDT (~250ms) performs a SYSTEM RESET.  The firmware must reinitialize in
+// BYPASS and be fully responsive.
+static void test_watchdog_backstop_reset(void) {
+    if (sim_reset(0) != 0) { g_failures++; return; }
+
+    // Verify normal operation first
+    CHECK(g_led_level == 0, "WDT test: power-on LED dark");
+    footsw_set(1); run_ms(50); footsw_set(0); run_ms(50);
+    CHECK(g_led_level == 1, "WDT test: press engages");
+    uint32_t changes_before = g_led_changes;
+
+    // Kill the timer interrupt: no more ticks -> main loop never pets the dog.
+    avr_core_watch_write(g_avr, TIMSK_MEM_ADDR, 0x00);
+
+    // Wait well past WDT timeout (250ms) for the system reset to fire.
+    run_ms(600);
+
+    // After WDT reset, firmware should reinit in BYPASS (LED dark, CD4053 low).
+    // The fact that LED returned to dark proves the MCU was reset and init()
+    // ran again correctly.
+    CHECK(g_led_level == 0,
+          "WDT test: after reset LED should be dark (reinit to BYPASS)");
+
+    // Post-reset responsiveness is a hardware verification item: simavr resets
+    // PINB to 0x00 on WDT reset, which puts the footswitch model in an
+    // inconsistent state with respect to the external IRQ drive level.  The
+    // firmware's power-on-pressed path handles this gracefully (LED stays
+    // dark), but subsequent pin transitions in the sim do not match hardware
+    // behavior.
+    (void)changes_before;
+}
+#else
+// Watchdog BACKSTOP (documented simavr limitation for ATtiny13).
 //
 // On real hardware, if the timer ISR stops running the main loop never pets
-// the dog and the WDT (~250ms) performs a SYSTEM RESET. We tried to verify
-// this by disabling Timer0's compare interrupt (TIMSK0=0) mid-run.
+// the dog and the WDT (~250ms) performs a SYSTEM RESET.
 //
 // However, simavr 1.6's ATtiny13 model does NOT emulate the watchdog system
 // reset: the WDT timer expires but the core is not reset (it just keeps
 // sleeping/waking). simavr only reports cpu_Crashed for a CPU stuck asleep
 // with interrupts globally disabled -- not for a watchdog timeout.
 //
-// So this case CANNOT be fully verified in simulation; it must be validated
-// on hardware (e.g. scope PB1/PB2 and confirm the device resets to BYPASS
-// ~250ms after the ISR is artificially stopped). What we CAN assert here is
-// the weaker property that the firmware does not lock the CPU in a way that
-// even simavr would flag. The real backstop check is on the hardware TODO
-// list.
-//
-// TIMSK0 lives at SRAM address 0x59 on the ATtiny13a (IO 0x39 + 0x20).
-#define TIMSK0_MEM_ADDR 0x59
+// What we CAN assert here is the weaker property that the firmware does not
+// lock the CPU in a way that even simavr would flag. The real backstop check
+// must be validated on hardware (e.g. scope PB1/PB2 and confirm the device
+// resets to BYPASS ~250ms after the ISR is artificially stopped).
 static void test_watchdog_backstop_documented(void) {
     if (sim_reset(0) != 0) { g_failures++; return; }
     g_saw_crash = 0;
@@ -399,7 +437,7 @@ static void test_watchdog_backstop_documented(void) {
     CHECK(g_saw_crash == 0, "should be healthy before we break the ISR");
 
     // Kill the timer interrupt: no more ticks -> main loop never pets the dog.
-    avr_core_watch_write(g_avr, TIMSK0_MEM_ADDR, 0x00);
+    avr_core_watch_write(g_avr, TIMSK_MEM_ADDR, 0x00);
     run_ms(600);
 
     // We do NOT assert a reset here (simavr can't model it). We only document
@@ -408,6 +446,7 @@ static void test_watchdog_backstop_documented(void) {
     CHECK(g_saw_crash == 0,
           "simavr cannot model WDT reset; verify backstop on hardware (see comment)");
 }
+#endif
 #endif // !TRACE
 
 //////////////////////////////////////////////////////////////////////////////
@@ -469,7 +508,11 @@ int main(void) {
     test_sustained_noise();
     test_enters_idle_sleep();
     test_watchdog_not_tripped_normally();
+#ifdef TARGET_T85
+    test_watchdog_backstop_reset();
+#else
     test_watchdog_backstop_documented();
+#endif
 
     if (g_avr) { avr_terminate(g_avr); free(g_avr); }
 

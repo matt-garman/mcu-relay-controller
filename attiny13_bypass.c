@@ -3,15 +3,26 @@
 // license information.
 
 
-// - core design assumes a 1ms timer interrupt (within the bounds of ATtiny13a
-//   oscillator precision)
+// - core design assumes a 1ms timer interrupt (within the bounds of the MCU's
+//   built-in RC oscillator precision)
 // - timing is therefore dependent on MCU operating speed; timer math based on
-//   1.2MHz CPU clock
-#ifndef F_CPU
-#  error "F_CPU must be defined (expected 1200000) via build flags, e.g. -DF_CPU=1200000UL"
-#endif
-#if (F_CPU != 1200000UL)
-#  error "F_CPU must be 1200000 to match CKDIV8 / timer math"
+//   the CPU clock rate (1.2MHz for ATtiny13/a, 1.0MHz for ATtiny85)
+#if defined(__AVR_ATtiny85__)
+#  if !defined(F_CPU)
+#    error "F_CPU must be defined via build flags, e.g. -DF_CPU=1000000UL"
+#  endif
+#  if (F_CPU != 1000000UL)
+#    error "F_CPU must be 1000000 for ATtiny85 (CKDIV8 enabled, 8MHz internal RC)"
+#  endif
+// ATtiny85 uses TIMSK, not TIMSK0; alias for shared code below
+#  define TIMSK0 TIMSK
+#else
+#  if !defined(F_CPU)
+#    error "F_CPU must be defined via build flags, e.g. -DF_CPU=1200000UL"
+#  endif
+#  if (F_CPU != 1200000UL)
+#    error "F_CPU must be 1200000 for ATtiny13/a"
+#  endif
 #endif
 
 
@@ -129,10 +140,14 @@ typedef enum {
 // de-bouncing
 #define PRESSED_THRESH (8)
 
-// Timer0 CTC config for a 1ms tick at F_CPU = 1.2MHz:
-//   tick = prescaler * (OCR0A + 1) / F_CPU
-//   1ms  = 8 * (149 + 1) / 1200000  -> exact, no rounding error
-#define TIMER0_OCR0A_1MS (149)
+// Timer0 CTC config for a 1ms tick:
+//   ATtiny13/a (F_CPU=1.2MHz): 8 * (149 + 1) / 1200000  -> exactly 1ms
+//   ATtiny85   (F_CPU=1.0MHz): 8 * (124 + 1) / 1000000  -> exactly 1ms
+#if defined(__AVR_ATtiny85__)
+#  define TIMER0_OCR0A_1MS (124)
+#else
+#  define TIMER0_OCR0A_1MS (149)
+#endif
  
 
 //////////////////////////////////////////////////////////////////////////////
