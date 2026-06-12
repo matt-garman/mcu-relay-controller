@@ -173,6 +173,17 @@ ISR(TIM0_COMPA_vect) {
 }
 
 
+// Disable the WDT in .init3, before main()/init() runs.  This is to avoid
+// reset-loop risk (on a WDT reset the WDT stays enabled with the prior
+// (possibly short) timeout, so could potentially re-trigger before being
+// cleared in init())
+void wdt_init_early(void) __attribute__((naked, used, section(".init3")));
+void wdt_init_early(void) {
+    MCUSR = 0;     // clear all reset-cause flags (incl. WDRF)
+    wdt_disable(); // turn the dog off until init() reconfigures it
+}
+
+
 // high-level initialization
 // called at power-on, and after RESET (e.g. due to watchdog timeout)
 static void init(void) {
@@ -188,12 +199,9 @@ static void init(void) {
     // re-enable at end of function
     cli();
 
-    // this init() call may have been triggered by WDC - reset the timer,
-    // disable WDT, reconfigure below
-    // FIXME: what if init() itself hangs?
-    wdt_reset();
-    MCUSR &= ~(1 << WDRF); // must clear WDRF before WDE can be cleared
-    wdt_disable();
+    // Watchdog: ~250ms timeout in system-reset mode. wdt_enable() sets WDE
+    // (reset mode) for us. WDTO_250MS is the nearest standard step.
+    wdt_enable(WDTO_250MS);
 
     // make the 1.2MHz system clock explicit at runtime
     // (9.6MHz internal RC / 8). The CKDIV8 fuse already does this at
@@ -257,10 +265,6 @@ static void init(void) {
     OCR0A  = TIMER0_OCR0A_1MS; // 149 -> 1ms tick at 1.2MHz/8
     TCNT0  = 0;                // start count from 0
     TIMSK0 = (1 << OCIE0A);    // enable Compare Match A interrupt
-
-    // Watchdog: ~250ms timeout in system-reset mode. wdt_enable() sets
-    // WDE (reset mode) for us. WDTO_250MS is the nearest standard step.
-    wdt_enable(WDTO_250MS);
 
     // CPU sleeps in IDLE between 1ms ticks: core halts, but Timer0 keeps
     // running so the tick ISR still wakes us. (Deeper modes would stop
