@@ -260,11 +260,12 @@ static void init(void) {
 
 
     // Timer0: CTC mode (WGM01=1), prescaler /8, compare match every 1ms.
-    TCCR0A = (1 << WGM01);     // CTC: clear timer on compare A
-    TCCR0B = (1 << CS01);      // prescaler = clk/8
-    OCR0A  = TIMER0_OCR0A_1MS; // 149 -> 1ms tick at 1.2MHz/8
-    TCNT0  = 0;                // start count from 0
-    TIMSK0 = (1 << OCIE0A);    // enable Compare Match A interrupt
+    TCCR0A  = (1 << WGM01);     // CTC: clear timer on compare A
+    TCCR0B  = (1 << CS01);      // prescaler = clk/8
+    OCR0A   = TIMER0_OCR0A_1MS; // 149 -> 1ms tick at 1.2MHz/8
+    TCNT0   = 0;                // start count from 0
+    TIMSK0  = (1 << OCIE0A);    // enable Compare Match A interrupt
+    TIFR0  |= (1 << OCF0A);     // explicitly clear TIFR0's OCF0A (prevent ISR firing immediately below after sei() from state compare-match flag from WDT reset)
 
     // CPU sleeps in IDLE between 1ms ticks: core halts, but Timer0 keeps
     // running so the tick ISR still wakes us. (Deeper modes would stop
@@ -275,6 +276,7 @@ static void init(void) {
 #pragma GCC diagnostic ignored "-Wconversion"
     set_sleep_mode(SLEEP_MODE_IDLE);
 #pragma GCC diagnostic pop
+
 
     // init done, now re-enable interrupts
     sei();

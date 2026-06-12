@@ -15,6 +15,8 @@
 #  endif
 // ATtiny85 uses TIMSK, not TIMSK0; alias for shared code (in C file)
 #  define TIMSK0 TIMSK
+// ATtiny85 uses TIFR, not TIFR0
+#  define TIFR0 TIFR
 #else
 #  if !defined(F_CPU)
 #    error "F_CPU must be defined via build flags, e.g. -DF_CPU=1200000UL"
