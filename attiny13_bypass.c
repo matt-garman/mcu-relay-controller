@@ -159,7 +159,7 @@ static void set_engaged_state(void) {
 //   switches/environments
 ISR(TIM0_COMPA_vect) {
 
-    timer_isr_called_ = TIMER_ISR_CALLED; // used by main() to reset WDC
+    timer_isr_called_ = TIMER_ISR_CALLED; // used by main() to reset WDT
 
     // saturating integrator update
     // PBO0 zero (low) == switch closed
@@ -192,7 +192,7 @@ static void init(void) {
     // (reset mode) for us. WDTO_250MS is the nearest standard step.
     //
     // NOTE: the AVR watchdog timer uses a separate oscillator that is
-    // independant of the system clock; it has *very* loose tolerance.  We
+    // independent of the system clock; it has *very* loose tolerance.  We
     // should expect our 250ms watchdog timeout to be 100-350ms in practice.
     //
     // We need to ensure that we don't create a WDT reset loop by making
@@ -254,7 +254,7 @@ static void init(void) {
         debounce_counter_ = 0;
     }
 
-    // ISR-main() WDC handshake: let ISR set this to called when timer is
+    // ISR-main() WDT handshake: let ISR set this to called when timer is
     // activated
     timer_isr_called_ = TIMER_ISR_NOT_CALLED;
 
