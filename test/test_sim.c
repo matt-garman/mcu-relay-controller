@@ -100,6 +100,15 @@
 #define SIM_PARITY_ITERS 400u
 #endif
 
+// Number of 1ms ticks driven through the lock-step co-simulation (firmware vs
+// golden model, internal-state comparison every tick). Each tick is one full
+// wake/process/sleep cycle of the real firmware, so this is comparable in cost
+// to the parity stream; keep modest for `make test`, crank via -D for
+// `make test-long`.
+#ifndef SIM_LOCKSTEP_ITERS
+#define SIM_LOCKSTEP_ITERS 5000u
+#endif
+
 // PB0/PB1/PB2 IRQ indices (these match FOOTSW_PIN/LED_PIN/CD4053_PIN from
 // bypass_config.h, but the simavr IRQ API wants plain integers).
 #define TIMSK_MEM_ADDR 0x59  // TIMSK0/TIMSK I/O addr 0x39 + SFR offset 0x20
@@ -618,6 +627,173 @@ static void test_toggle_parity_invariant(void) {
 
 
 //////////////////////////////////////////////////////////////////////////////
+// Lock-step co-simulation: firmware internal state vs golden model, EVERY tick.
+//
+// The output-only tests above prove the LED/CD4053 *transitions* match
+// expectations. This test goes deeper: it drives the SAME input stream into the
+// real firmware (simavr) and an independent golden model, and after every 1ms
+// tick compares the firmware's internal RAM (debounce_counter_, program_state_,
+// effect_state_) against the model's. That closes the binary<->model gap left
+// open by the proofs in test_model_check.c / test_symbolic.c, which verify a
+// re-implementation of the algorithm rather than the compiled binary: here the
+// compiled firmware's full state trajectory must match the proven model tick
+// for tick, not merely agree on the final toggle count.
+//
+// The model below is byte-identical to the golden model in test_logic_host.c
+// and the step() in test_model_check.c / test_symbolic.c, and pulls its
+// thresholds from bypass_config.h via the host shim.
+//////////////////////////////////////////////////////////////////////////////
+
+enum { LS_PRESS_WAIT = 0, LS_RELEASE_WAIT = 1 };
+enum { LS_BYPASS = 0, LS_ENGAGED = 1 };
+
+typedef struct {
+    uint8_t program_state;
+    uint8_t effect_state;
+    uint8_t debounce_counter;
+} ls_model_t;
+
+static void ls_model_init(ls_model_t *m, int pressed_at_power_on) {
+    m->effect_state = LS_BYPASS;
+    if (pressed_at_power_on) {
+        m->program_state    = LS_RELEASE_WAIT;
+        m->debounce_counter = RELEASE_THRESH;
+    } else {
+        m->program_state    = LS_PRESS_WAIT;
+        m->debounce_counter = 0;
+    }
+}
+
+// One 1ms tick: ISR saturating integrator, then one main-loop state-machine
+// pass. pin_low != 0 means PB0 reads low == switch pressed.
+static void ls_model_step(ls_model_t *m, int pin_low) {
+    if (pin_low) {
+        if (m->debounce_counter < RELEASE_THRESH) { m->debounce_counter++; }
+    } else {
+        if (m->debounce_counter > 0) { m->debounce_counter--; }
+    }
+    if (m->program_state == LS_PRESS_WAIT) {
+        if (m->debounce_counter >= PRESSED_THRESH) {
+            m->debounce_counter = RELEASE_THRESH;
+            m->program_state    = LS_RELEASE_WAIT;
+            m->effect_state     = (m->effect_state == LS_BYPASS) ? LS_ENGAGED : LS_BYPASS;
+        }
+    } else {
+        if (m->debounce_counter == 0) { m->program_state = LS_PRESS_WAIT; }
+    }
+}
+
+// Advance the firmware by EXACTLY one 1ms Timer0 tick and leave it settled:
+// wait for the compare-match ISR to wake the core, then run until it returns to
+// IDLE sleep (main has fully reacted to this tick -- including the extra,
+// non-sleeping main-loop pass on a toggle or re-arm). This is a phase- and
+// drift-free tick boundary: the firmware disables pin-change interrupts, so
+// changing PB0 never wakes the core -- only the timer does -- and the input set
+// before this call is the one this single tick integrates.
+//
+// Returns 0 on success, -1 if the expected wake/sleep cycle did not occur
+// within a safety budget (a crash or a stuck core -- itself a failure).
+static int run_one_tick_settled(void) {
+    const avr_cycle_count_t budget = (avr_cycle_count_t)(5UL * (F_CPU_HZ / 1000UL));
+    avr_cycle_count_t start = g_avr->cycle;
+
+    // 1. Wait for the core to WAKE (timer ISR fired). While idle, avr_run
+    //    returns cpu_Sleeping and fast-forwards to the next timer event.
+    for (;;) {
+        int st = avr_run(g_avr);
+        if (st == cpu_Crashed) { g_saw_crash = 1; return -1; }
+        if (st == cpu_Done) return -1;
+        if (st != cpu_Sleeping) break;
+        if (g_avr->cycle - start > budget) return -1;
+    }
+    // 2. Wait until it SLEEPS again (main finished processing this tick).
+    for (;;) {
+        int st = avr_run(g_avr);
+        if (st == cpu_Crashed) { g_saw_crash = 1; return -1; }
+        if (st == cpu_Done) return -1;
+        if (st == cpu_Sleeping) { g_saw_sleep = 1; break; }
+        if (g_avr->cycle - start > budget) return -1;
+    }
+    return 0;
+}
+
+static void test_lockstep_cosim(void) {
+    if (sim_reset(0) != 0) { g_failures++; return; }
+
+    CHECK(g_addr_debounce != 0 && g_addr_program_state != 0 && g_addr_effect_state != 0,
+          "lock-step: could not resolve firmware global addresses (need ELF symbols)");
+    if (!g_addr_debounce || !g_addr_program_state || !g_addr_effect_state) return;
+
+    ls_model_t m;
+    ls_model_init(&m, 0); // released at power-on, matching sim_reset(0)
+
+    // Establish the sleeping precondition and verify the anchor: after the 5ms
+    // settle with the switch released, firmware and model must already agree.
+    run_until_first_sleep((avr_cycle_count_t)(10UL * (F_CPU_HZ / 1000UL)));
+    CHECK(g_avr->data[g_addr_program_state] == m.program_state &&
+          g_avr->data[g_addr_effect_state]  == m.effect_state  &&
+          g_avr->data[g_addr_debounce]      == m.debounce_counter,
+          "lock-step anchor mismatch: fw(ps=%u es=%u dc=%u) model(ps=%u es=%u dc=%u)",
+          g_avr->data[g_addr_program_state], g_avr->data[g_addr_effect_state],
+          g_avr->data[g_addr_debounce], m.program_state, m.effect_state, m.debounce_counter);
+
+    uint32_t rng = 0xC051A1EDu;
+    unsigned ticks = 0;
+    unsigned mismatches = 0;
+    unsigned toggles = 0; // sanity: confirm the stream actually exercises toggles
+
+    // Outer loop picks a level and a hold duration; holds long enough to cross
+    // PRESSED_THRESH (toggle) and RELEASE_THRESH (full re-arm), so every code
+    // path -- press, lock-out, release, re-arm -- is exercised in lock-step.
+    while (ticks < SIM_LOCKSTEP_ITERS && mismatches < 5) {
+        int pin_low = ((xorshift32(&rng) & 0xFF) < 128); // ~50% pressed
+        unsigned hold = 1u + (xorshift32(&rng) % 30u);   // up to 30 ticks
+        for (unsigned h = 0; h < hold && ticks < SIM_LOCKSTEP_ITERS; ++h, ++ticks) {
+            uint8_t es_before = m.effect_state;
+
+            footsw_set(pin_low); // pressed => drive LOW
+            if (run_one_tick_settled() != 0) {
+                CHECK(0, "lock-step: firmware failed to complete tick %u "
+                         "(crash or stuck core)", ticks);
+                return;
+            }
+            ls_model_step(&m, pin_low);
+            if (m.effect_state != es_before) { toggles++; }
+
+            uint8_t fw_ps = g_avr->data[g_addr_program_state];
+            uint8_t fw_es = g_avr->data[g_addr_effect_state];
+            uint8_t fw_dc = g_avr->data[g_addr_debounce];
+
+            int ok = (fw_ps == m.program_state)
+                  && (fw_es == m.effect_state)
+                  && (fw_dc == m.debounce_counter);
+            CHECK(ok,
+                  "lock-step divergence at tick %u (in=%d): "
+                  "fw(ps=%u es=%u dc=%u) != model(ps=%u es=%u dc=%u)",
+                  ticks, pin_low, fw_ps, fw_es, fw_dc,
+                  m.program_state, m.effect_state, m.debounce_counter);
+            if (!ok) { mismatches++; }
+
+            // The firmware outputs must also track the model's effect state
+            // exactly (LED lit / CD4053 high == ENGAGED).
+            CHECK(g_led_level == (int)m.effect_state,
+                  "lock-step: LED (PB1=%d) disagrees with model effect_state=%u at tick %u",
+                  g_led_level, m.effect_state, ticks);
+            CHECK(g_cd4053_level == (int)m.effect_state,
+                  "lock-step: CD4053 (PB2=%d) disagrees with model effect_state=%u at tick %u",
+                  g_cd4053_level, m.effect_state, ticks);
+        }
+    }
+
+    CHECK(toggles >= 5,
+          "lock-step: stream exercised only %u toggles (expected >=5); "
+          "input not stimulating the toggle path", toggles);
+    printf("  lock-step: %u ticks compared, %u toggles, %u mismatches\n",
+           ticks, toggles, mismatches);
+}
+
+
+//////////////////////////////////////////////////////////////////////////////
 // Sleep + watchdog behavior
 //////////////////////////////////////////////////////////////////////////////
 
@@ -1061,6 +1237,7 @@ int main(int argc, char **argv) {
     test_power_on_sampling_race();
     test_clean_press_latency();
     test_toggle_parity_invariant();
+    test_lockstep_cosim();
     test_enters_idle_sleep();
     test_watchdog_not_tripped_normally();
 #ifdef TARGET_T85

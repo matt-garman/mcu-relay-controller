@@ -8,3 +8,4 @@ klee-out-*/
 test_symbolic.bc
 test_fuses
 test_symbolic
+.toolchain.sig

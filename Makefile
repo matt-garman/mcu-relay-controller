@@ -14,9 +14,16 @@
 #   1. analyze            static analysis (clang-tidy / -fanalyzer)
 #   2. test-host          independent "golden model" of the debounce algorithm
 #   3. test-model-check   exhaustive proof of invariants over the whole state space
-#   4. test-sim / -t85    the REAL compiled firmware run inside simavr
+#   4. test-sim / -t85    the REAL compiled firmware run inside simavr, including
+#                         lock-step co-simulation (firmware RAM vs golden model,
+#                         compared every 1ms tick)
 #   5. test-fault-inject  corrupt MCU state, verify watchdog-reset recovery (t85)
-#   6. coverage-check     fail if golden-model line coverage drops below a floor
+#   6. test-mutation      inject firmware faults, verify the suite detects them
+#   7. coverage-check     fail if golden-model line coverage drops below a floor
+#
+# Host model tests (2,3) build with ASan+UBSan (SANITIZE=) by default.
+# The firmware ELFs depend on a toolchain-signature stamp, so a compiler change
+# forces a rebuild and re-runs the fault-injection gate (5).
 #
 # COMMON COMMANDS
 #   make                 build the ATtiny13a firmware (.hex) and print size
@@ -106,6 +113,17 @@ SIMAVR_INC  ?= /usr/include/simavr
 SIM_CFLAGS   = -std=c11 -Wall -Wextra -Werror -I$(SIMAVR_INC)
 SIM_LIBS     = -lsimavr -lelf
 
+# Sanitizers for the PURE-HOST model tests (test_logic_host, test_model_check,
+# test_symbolic, test_fuses). UBSan catches the integer narrowing/overflow/
+# signed-shift UB that the debounce arithmetic could otherwise hide; ASan
+# catches any out-of-bounds/use-after-free in the harness itself.
+# -fno-sanitize-recover turns any violation into a hard, nonzero-exit failure
+# instead of a logged-and-continue warning. These pure-host binaries link no
+# external libraries, so the sanitizers stay noise-free.
+# Override on the command line to disable (e.g. a toolchain without the runtime):
+#   make test SANITIZE=
+SANITIZE    ?= -fsanitize=undefined,address -fno-sanitize-recover=all
+
 # --- Test workload sizing ----------------------------------------------------
 # The default `make test` runs a FAST but still-meaningful workload so it
 # finishes in a few seconds (good for edit/build/test loops and CI gating).
@@ -123,7 +141,8 @@ FAST_SIM_DEFS  = -DSIM_RANDOM_NOISE_DURATION_MS=5000u \
                  -DSIM_EXTREME_BOUNCE_PRESSES=5 \
                  -DSIM_ADVERSARIAL_CYCLES=20 \
                  -DSIM_POWER_ON_BOOTS=10 \
-                 -DSIM_PARITY_ITERS=200u
+                 -DSIM_PARITY_ITERS=200u \
+                 -DSIM_LOCKSTEP_ITERS=1500u
 # Full (exhaustive) sizing == the in-source defaults, so no extra -D needed.
 FULL_HOST_DEFS =
 FULL_SIM_DEFS  =
@@ -191,11 +210,37 @@ CFLAGS  = -mmcu=$(MCU) -DF_CPU=$(F_CPU) -Os \
 
 LDFLAGS = -mmcu=$(MCU) -Wl,--gc-sections
 
+# --- Toolchain-change detection ----------------------------------------------
+# The firmware's RAM-corruption sanity checks (main()'s guard) -- and the
+# fault-injection tests that exercise them -- rely on the compiler keeping the
+# checked globals coherent in RAM rather than caching them in registers. A
+# compiler/optimization change could silently alter that and defeat the guard
+# without any source change. To make such a change observable, we hash the
+# compiler identities into a stamp file and have BOTH firmware ELFs depend on
+# it. When the toolchain changes, the stamp is rewritten -> the firmware
+# rebuilds -> the simavr harnesses relink -> `test-fault-inject` re-runs
+# automatically. The stamp is only rewritten when the signature actually
+# changes, so a normal build does not churn.
+TOOLCHAIN_SIG   := $(shell { $(CC) --version; $(HOSTCC) --version; } 2>/dev/null | cksum | awk '{print $$1}')
+TOOLCHAIN_STAMP := test/.toolchain.sig
+
+$(TOOLCHAIN_STAMP): FORCE
+	@mkdir -p test
+	@if [ "$$(cat $@ 2>/dev/null)" != "$(TOOLCHAIN_SIG)" ]; then \
+		printf '%s\n' "$(TOOLCHAIN_SIG)" > $@; \
+		echo "toolchain signature changed ($(TOOLCHAIN_SIG)): firmware will rebuild and the fault-injection gate will re-run"; \
+	fi
+
+# Force-evaluated phony so the stamp recipe runs every invocation (it only
+# touches the file when the signature differs).
+.PHONY: FORCE
+FORCE:
+
 # Targets that are commands, not files.
 .PHONY: all all13 all85 clean size readfuses fuses flash program help \
         test test-fast test-long stress \
         test-host test-sim test-sim-t85 \
-        test-model-check test-fault-inject test-fuses test-symbolic \
+        test-model-check test-fault-inject test-fuses test-symbolic test-mutation \
         analyze analyze-tidy analyze-cppcheck analyze-deep \
         trace coverage coverage-check coverage-clean \
         size85 fuses85 flash85 program85
@@ -212,7 +257,9 @@ all: all13
 all13: $(TARGET).hex size
 
 # Compile + link the firmware ELF (full warnings, -Werror, dead-code stripping).
-$(TARGET).elf: $(TARGET).c
+# Depends on the toolchain stamp so a compiler change forces a rebuild (and thus
+# re-runs the fault-injection gate that validates the RAM-corruption guard).
+$(TARGET).elf: $(TARGET).c $(TOOLCHAIN_STAMP)
 	$(CC) $(CFLAGS) $(LDFLAGS) -o $@ $<
 
 # Convert the ELF to the Intel HEX image avrdude flashes (drop .eeprom).
@@ -232,7 +279,7 @@ all85: $(TARGET85).hex size85
 
 # Compile the same source for the ATtiny85 (1.0 MHz). Flags mirror CFLAGS but
 # are spelled out because the MCU/F_CPU differ.
-$(TARGET85).elf: $(TARGET).c
+$(TARGET85).elf: $(TARGET).c $(TOOLCHAIN_STAMP)
 	$(CC) -mmcu=$(MCU85) -DF_CPU=$(F_CPU85) -Os \
 		-fshort-enums -funsigned-char \
 		-ffunction-sections -fdata-sections \
@@ -272,7 +319,8 @@ clean:
 		test/test_logic_host test/test_sim test/test_sim_t85 test/test_trace \
 		test/test_model_check test/test_symbolic test/test_fuses \
 		test/test_symbolic.bc \
-		bypass_trace.vcd $(TARGET).plist
+		bypass_trace.vcd $(TARGET).plist \
+		$(TOOLCHAIN_STAMP)
 	rm -rf test/klee-out-* test/klee-last
 
 # ============================================================================
@@ -319,7 +367,7 @@ test-fast: test
 # overrides). Use before tagging a release or signing off for hardware.
 test-long: HOST_DEFS = $(FULL_HOST_DEFS)
 test-long: SIM_DEFS  = $(FULL_SIM_DEFS)
-test-long: clean-tests analyze test-host test-model-check test-symbolic test-fuses test-fault-inject test-sim test-sim-t85 coverage-check
+test-long: clean-tests analyze test-host test-model-check test-symbolic test-fuses test-fault-inject test-sim test-sim-t85 test-mutation coverage-check
 	@echo "=== all FULL (exhaustive) pre-hardware tests passed ==="
 
 # Friendly alias for the exhaustive suite (same as `make test-long`).
@@ -343,7 +391,7 @@ test-host: test/test_logic_host
 # Build rule for the golden model. Constants come from bypass_config.h (via the
 # host shim) so the model can never drift from the firmware thresholds.
 test/test_logic_host: test/test_logic_host.c test/bypass_config_host.h bypass_config.h
-	$(HOSTCC) $(HOST_CFLAGS) $(HOST_DEFS) -Itest $< -o $@
+	$(HOSTCC) $(HOST_CFLAGS) $(SANITIZE) $(HOST_DEFS) -Itest $< -o $@
 
 # Exhaustive small-model state-space verification: breadth-first search over the
 # ENTIRE reachable state space of the debounce algorithm (~66 states), proving
@@ -353,7 +401,7 @@ test-model-check: test/test_model_check
 
 # Build rule for the state-space checker.
 test/test_model_check: test/test_model_check.c test/bypass_config_host.h bypass_config.h
-	$(HOSTCC) $(HOST_CFLAGS) -Itest $< -o $@
+	$(HOSTCC) $(HOST_CFLAGS) $(SANITIZE) -Itest $< -o $@
 
 # Symbolic / exhaustive single-step property check: proves the per-step
 # transition invariants of step() hold for EVERY (state x input) combination in
@@ -365,7 +413,7 @@ test-symbolic: test/test_symbolic
 
 # Build rule for the symbolic step checker.
 test/test_symbolic: test/test_symbolic.c test/bypass_config_host.h bypass_config.h
-	$(HOSTCC) $(HOST_CFLAGS) -Itest $< -o $@
+	$(HOSTCC) $(HOST_CFLAGS) $(SANITIZE) -Itest $< -o $@
 
 # Optional: run the SAME single-step properties under KLEE symbolic execution
 # (only if KLEE is installed). KLEE explores the symbolic input domain and
@@ -401,7 +449,7 @@ test-fuses: test/test_fuses
 # so that editing a fuse byte forces a rebuild (the values live in the recipe,
 # not in a tracked source file).
 test/test_fuses: test/test_fuses.c Makefile
-	$(HOSTCC) $(HOST_CFLAGS) \
+	$(HOSTCC) $(HOST_CFLAGS) $(SANITIZE) \
 		-DT13_LFUSE=$(LFUSE) -DT13_HFUSE=$(HFUSE) \
 		-DT85_LFUSE=$(LFUSE85) -DT85_HFUSE=$(HFUSE85) \
 		$< -o $@
@@ -429,6 +477,15 @@ test/test_sim_t85: test/test_sim.c test/bypass_config_host.h bypass_config.h $(T
 		-DF_CPU_HZ=1000000UL \
 		-DTARGET_T85 \
 		test/test_sim.c -o $@ $(SIM_LIBS)
+
+# Mutation testing: inject deliberate faults into the PRODUCTION sources
+# (attiny13_bypass.c / bypass_config.h), rebuild, and confirm a fast test target
+# DETECTS each one (the mutant is "killed"). A surviving mutant marks a gap in
+# the suite. Operates on throwaway copies; never touches the real sources. Not
+# part of `make test` (it rebuilds the firmware per mutant); included in
+# `test-long` and runnable standalone.
+test-mutation:
+	./test/run_mutation_tests.sh
 
 # Fault-injection tests: corrupt MCU state (program_state_, effect_state_,
 # timer_isr_called_, DDRB/PORTB) and verify the firmware's main-loop sanity
@@ -570,6 +627,7 @@ help:
 	@echo "  test-sim        real firmware in simavr (ATtiny13a)"
 	@echo "  test-sim-t85    real firmware in simavr (ATtiny85)"
 	@echo "  test-fault-inject  corrupt state, verify watchdog recovery (t85)"
+	@echo "  test-mutation   inject firmware faults, verify the suite kills them"
 	@echo "  trace           emit bypass_trace.vcd (GTKWave)"
 	@echo "Analysis:"
 	@echo "  analyze         static analysis (clang-tidy + cppcheck + clang-analyzer)"
