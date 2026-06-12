@@ -118,13 +118,13 @@ __attribute__((noreturn)) static void force_wdt_reset(void) {
 // LED_PIN high = status LED lit
 // LED_PIN low = status LED dark
 static void led_pin_set_high(void) { PORTB |=  (1 << LED_PIN); }
-static void led_pin_set_low(void)  { PORTB &= ~(1 << LED_PIN); }
+static void led_pin_set_low(void)  { PORTB &= (uint8_t)~(1 << LED_PIN); }
 
 
 // CD4053_PIN high -> mosfet on  -> 4053 control pins low
 // CD4053_PIN low  -> mosfet off -> 4053 control pins high
 static void cd4053_pin_set_high(void) { PORTB |=  (1 << CD4053_PIN); }
-static void cd4053_pin_set_low(void)  { PORTB &= ~(1 << CD4053_PIN); }
+static void cd4053_pin_set_low(void)  { PORTB &= (uint8_t)~(1 << CD4053_PIN); }
 
 
 // read FOOTSW_PIN to determine if it's high or low
@@ -269,7 +269,12 @@ static void init(void) {
     // CPU sleeps in IDLE between 1ms ticks: core halts, but Timer0 keeps
     // running so the tick ISR still wakes us. (Deeper modes would stop
     // Timer0)
+    // NOTE: set_sleep_mode() is an avr-libc macro whose ~mask expansion trips
+    // -Wconversion; suppress locally since we cannot cast inside the macro.
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wconversion"
     set_sleep_mode(SLEEP_MODE_IDLE);
+#pragma GCC diagnostic pop
 
     // init done, now re-enable interrupts
     sei();
