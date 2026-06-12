@@ -92,6 +92,14 @@
 #define SIM_POWER_ON_BOOTS 30
 #endif
 
+// Iterations for the odd/even toggle-parity invariant stream. Each iteration
+// holds a random level for up to ~12ms of *real-firmware* simulated time, so
+// this is the dominant cost of the sim suite; keep modest for `make test` and
+// crank it up via -D for `make test-long`.
+#ifndef SIM_PARITY_ITERS
+#define SIM_PARITY_ITERS 400u
+#endif
+
 // PB0/PB1/PB2 IRQ indices (these match FOOTSW_PIN/LED_PIN/CD4053_PIN from
 // bypass_config.h, but the simavr IRQ API wants plain integers).
 #define TIMSK_MEM_ADDR 0x59  // TIMSK0/TIMSK I/O addr 0x39 + SFR offset 0x20
@@ -105,6 +113,9 @@ static int         g_cd4053_level = 0; // current PB2 level
 static uint32_t    g_led_changes  = 0; // count of PB1 transitions
 static int         g_saw_sleep    = 0; // set if CPU ever entered cpu_Sleeping
 static int         g_saw_crash    = 0; // set if CPU ever hit cpu_Crashed (WDT)
+// cycle timestamp of the most recent PB1 (LED) transition; used by the latency
+// test to measure press->toggle time against the real firmware.
+static avr_cycle_count_t g_last_led_change_cycle = 0;
 
 // Resolved SRAM addresses of firmware globals (looked up from the ELF symbol
 // table in sim_reset()). 0 == not found. Used by the fault-injection tests to
@@ -133,7 +144,10 @@ static int g_checks   __attribute__((unused)) = 0;
 static void led_hook(struct avr_irq_t *irq, uint32_t value, void *param) {
     (void)irq; (void)param;
     int v = value ? 1 : 0;
-    if (v != g_led_level) { g_led_changes++; }
+    if (v != g_led_level) {
+        g_led_changes++;
+        if (g_avr) { g_last_led_change_cycle = g_avr->cycle; }
+    }
     g_led_level = v;
 }
 
@@ -184,9 +198,37 @@ static inline void footsw_drive(int pressed, unsigned ms) {
     run_ms(ms);
 }
 
+// Run until the CPU first enters IDLE sleep (which only happens in the main
+// loop AFTER init() completes and the state machine has nothing to do), or
+// until `cycle_budget` cycles elapse. Returns the cycle count at which sleep
+// was first observed, or 0 if it never slept within the budget.
+//
+// This is the cleanest "init() finished and the main loop is live" signal:
+// init() runs with interrupts disabled and never sleeps, so the first
+// cpu_Sleeping marks the transition into steady-state operation.
+static avr_cycle_count_t run_until_first_sleep(avr_cycle_count_t cycle_budget) {
+    avr_cycle_count_t start  = g_avr->cycle;
+    avr_cycle_count_t target = start + cycle_budget;
+    while (g_avr->cycle < target) {
+        int st = avr_run(g_avr);
+        if (st == cpu_Sleeping) {
+            g_saw_sleep = 1;
+            return g_avr->cycle;
+        }
+        if (st == cpu_Crashed) { g_saw_crash = 1; return 0; }
+        if (st == cpu_Done)    { return 0; }
+    }
+    return 0;
+}
+
 // (Re)load firmware and reset sim to a clean power-on state with the
 // footswitch in the given initial position.
-static int sim_reset(int footsw_pressed_at_power_on) {
+//
+// `settle` controls whether we advance 5ms so init() finishes and the first
+// ticks land before returning. Most tests want that (sim_reset()). The init()
+// timing test wants the sim positioned EXACTLY at reset so it can measure how
+// long init() takes, so it calls sim_reset_raw(..., 0).
+static int sim_reset_raw(int footsw_pressed_at_power_on, int settle) {
     static elf_firmware_t fw; // persistent: avr keeps pointers into it
     memset(&fw, 0, sizeof(fw));
 
@@ -229,6 +271,7 @@ static int sim_reset(int footsw_pressed_at_power_on) {
     g_led_changes = 0;
     g_saw_sleep = 0;
     g_saw_crash = 0;
+    g_last_led_change_cycle = 0;
 
     // Register output watchers on PB1 and PB2.
     avr_irq_register_notify(
@@ -241,9 +284,16 @@ static int sim_reset(int footsw_pressed_at_power_on) {
     // Establish the footswitch level BEFORE the firmware samples it in init().
     footsw_set(footsw_pressed_at_power_on);
 
-    // Let init() run and settle (clock, timer, first ticks).
-    run_ms(5);
+    // Let init() run and settle (clock, timer, first ticks) unless the caller
+    // wants the sim left exactly at reset (init() timing measurement).
+    if (settle) { run_ms(5); }
     return 0;
+}
+
+// Convenience wrapper: reset + 5ms settle (the behavior every existing test
+// relies on).
+static int sim_reset(int footsw_pressed_at_power_on) {
+    return sim_reset_raw(footsw_pressed_at_power_on, 1);
 }
 
 //////////////////////////////////////////////////////////////////////////////
@@ -445,6 +495,129 @@ static void test_sustained_noise(void) {
 
 
 //////////////////////////////////////////////////////////////////////////////
+// Timing verification against the REAL firmware
+//////////////////////////////////////////////////////////////////////////////
+
+// Cycles per simulated millisecond at the configured CPU frequency.
+#define CYCLES_PER_MS (F_CPU_HZ / 1000UL)
+
+// (#2) init() / power-on timing: init() runs with interrupts disabled and never
+// sleeps, so the first cpu_Sleeping marks "init() finished and main loop is
+// idle". Measure how long that takes from reset and assert it completes WELL
+// within the WDT window (~250ms nominal, but as low as ~100ms with the WDT's
+// loose oscillator). The firmware header claims "100s of microseconds"; we
+// require a generous <50ms ceiling so a future init() bloat that risks a
+// WDT-reset loop fails here instead of bricking a board.
+static void test_init_completes_before_wdt(void) {
+    if (sim_reset_raw(0, 0) != 0) { g_failures++; return; }
+
+    avr_cycle_count_t start = g_avr->cycle;
+    // Give it up to 100ms of budget; we EXPECT it far sooner.
+    avr_cycle_count_t slept_at =
+        run_until_first_sleep((avr_cycle_count_t)(100UL * CYCLES_PER_MS));
+
+    CHECK(slept_at != 0,
+          "init() never reached idle sleep within 100ms (init() too long / hung?)");
+    if (slept_at == 0) return;
+
+    double init_ms = (double)(slept_at - start) / (double)CYCLES_PER_MS;
+    printf("  init()->first-idle: %.3f ms (must be << WDT ~100-250ms)\n", init_ms);
+    // The first sleep happens after init() AND one main-loop pass; the first
+    // tick may need up to ~1ms. Require comfortably under the worst-case WDT.
+    CHECK(init_ms < 50.0,
+          "init() to first idle took %.3f ms; too close to WDT window", init_ms);
+}
+
+// (#2) Power-on sampling order: the footswitch level present at reset must be
+// the one init() acts on. If held at power-on, the firmware enters
+// RELEASE_DEBOUNCE_WAIT and must NOT toggle when later released (verified
+// functionally elsewhere); here we assert the converse race direction -- a
+// switch that is RELEASED at power-on must leave the device immediately ready
+// so that a press arriving very soon after boot is honored.
+static void test_power_on_sampling_race(void) {
+    // Released at power-on, then press almost immediately after init settles.
+    if (sim_reset(0) != 0) { g_failures++; return; }
+    CHECK(g_led_level == 0, "released-at-power-on must boot dark");
+    uint32_t before = g_led_changes;
+    footsw_set(1); run_ms(50);
+    CHECK((g_led_changes - before) == 1,
+          "press right after boot should engage exactly once, got %u",
+          g_led_changes - before);
+    footsw_set(0); run_ms(50);
+}
+
+// (#2) Tick period: measure the real Timer0 ISR period by timing two
+// consecutive LED-relevant events. We do this indirectly: drive a clean press
+// and measure press->toggle latency, which is exactly PRESSED_THRESH ticks; the
+// implied tick period must be ~1ms (the whole debounce-timing contract).
+//
+// (#6) Latency assertion on the REAL ELF: a clean press must toggle the LED in
+// PRESSED_THRESH ticks, and the wall-clock latency must satisfy the <10ms
+// design goal under nominal clock.
+static void test_clean_press_latency(void) {
+    if (sim_reset(0) != 0) { g_failures++; return; }
+
+    uint32_t before = g_led_changes;
+    footsw_set(1);                       // press
+    avr_cycle_count_t press_cycle = g_avr->cycle;
+    run_ms(50);                          // hold past threshold
+    CHECK((g_led_changes - before) == 1, "clean press should toggle once");
+    CHECK(g_led_level == 1, "clean press should engage (LED lit)");
+
+    double latency_ms =
+        (double)(g_last_led_change_cycle - press_cycle) / (double)CYCLES_PER_MS;
+    printf("  clean-press latency (real ELF): %.3f ms "
+           "(PRESSED_THRESH=%d ticks)\n", latency_ms, PRESSED_THRESH);
+
+    // Implied tick period from the measured latency.
+    double tick_ms = latency_ms / (double)PRESSED_THRESH;
+
+    // The tick must be ~1ms (allow the +/-10% RC tolerance plus a little
+    // measurement slack for when within the tick the press was sampled).
+    CHECK(tick_ms >= 0.8 && tick_ms <= 1.25,
+          "implied tick period %.4f ms is outside the ~1ms contract", tick_ms);
+
+    // The headline latency goal: <10ms under nominal clock.
+    CHECK(latency_ms <= 10.0,
+          "clean-press latency %.3f ms exceeds the 10ms design goal", latency_ms);
+
+    footsw_set(0); run_ms(50);
+}
+
+// (#6) Odd/even toggle PARITY invariant across a long random stream against the
+// REAL firmware: the LED level must always equal (toggle_count is odd). i.e.
+// engaged iff an odd number of state changes have occurred. This catches any
+// firmware path that could change the LED without going through the single
+// toggle point (e.g. a stray PORTB write, a missed inversion, a glitch).
+static void test_toggle_parity_invariant(void) {
+    if (sim_reset(0) != 0) { g_failures++; return; }
+
+    uint32_t rng = 0x5A17C0DEu;
+    uint32_t base = g_led_changes; // should be 0 at boot, but be robust
+
+    // Drive a long, moderately-correlated random stream so we actually get a
+    // healthy mix of real toggles (not just noise). Hold each level for a few
+    // ms so presses can cross PRESSED_THRESH.
+    const unsigned iters = SIM_PARITY_ITERS;
+    for (unsigned i = 0; i < iters; ++i) {
+        int pressed = (xorshift32(&rng) & 0xFF) < 96; // ~37% pressed
+        unsigned hold = 1u + (xorshift32(&rng) % 12u);
+        footsw_drive(pressed, hold);
+
+        uint32_t toggles = g_led_changes - base;
+        int expect_lit = (int)(toggles & 1u); // odd toggles => engaged/lit
+        CHECK(g_led_level == expect_lit,
+              "parity broken at i=%u: toggles=%u led=%d expected=%d",
+              i, toggles, g_led_level, expect_lit);
+        // CD4053 must track the LED exactly (both reflect engaged/bypass).
+        CHECK(g_cd4053_level == g_led_level,
+              "CD4053 (PB2=%d) diverged from LED (PB1=%d) at i=%u",
+              g_cd4053_level, g_led_level, i);
+    }
+}
+
+
+//////////////////////////////////////////////////////////////////////////////
 // Sleep + watchdog behavior
 //////////////////////////////////////////////////////////////////////////////
 
@@ -507,6 +680,47 @@ static void test_watchdog_backstop_reset(void) {
     // dark), but subsequent pin transitions in the sim do not match hardware
     // behavior.
     (void)changes_before;
+}
+
+// (#3) Watchdog timeout BOUND: not only must the WDT eventually reset after the
+// ISR dies, it must do so within the part's WDT window. The AVR WDT oscillator
+// is loose (~100-350ms for a nominal 250ms setting), so we assert the reset
+// lands inside a generous [50ms, 500ms] envelope -- catching both a WDT that
+// never fires AND one mis-configured to an absurdly long timeout.
+static void test_watchdog_timeout_within_bound(void) {
+    if (sim_reset(0) != 0) { g_failures++; return; }
+
+    // Engage so the LED is LIT; the post-reset reinit to BYPASS (LED dark) is
+    // our reset timestamp.
+    footsw_set(1); run_ms(50); footsw_set(0); run_ms(50);
+    CHECK(g_led_level == 1, "WDT-bound: press engages before we break the ISR");
+    if (g_led_level != 1) return;
+
+    // Kill the timer ISR; record the moment.
+    avr_core_watch_write(g_avr, TIMSK_MEM_ADDR, 0x00);
+    avr_cycle_count_t kill_cycle = g_avr->cycle;
+
+    // Run up to 500ms, stopping as soon as the LED goes dark (reset reinit).
+    avr_cycle_count_t deadline =
+        kill_cycle + (avr_cycle_count_t)(500UL * CYCLES_PER_MS);
+    avr_cycle_count_t reset_cycle = 0;
+    while (g_avr->cycle < deadline) {
+        int st = avr_run(g_avr);
+        if (st == cpu_Crashed) { g_saw_crash = 1; }
+        if (g_led_level == 0) { reset_cycle = g_avr->cycle; break; }
+        if (st == cpu_Done) break;
+    }
+
+    CHECK(reset_cycle != 0,
+          "WDT-bound: device did not reset to BYPASS within 500ms of ISR death");
+    if (reset_cycle == 0) return;
+
+    double wdt_ms = (double)(reset_cycle - kill_cycle) / (double)CYCLES_PER_MS;
+    printf("  WDT reset fired %.1f ms after ISR death "
+           "(nominal 250ms, RC tolerance ~100-350ms)\n", wdt_ms);
+    CHECK(wdt_ms >= 50.0 && wdt_ms <= 500.0,
+          "WDT reset latency %.1f ms outside expected [50,500] ms envelope",
+          wdt_ms);
 }
 #else
 // Watchdog BACKSTOP (documented simavr limitation for ATtiny13).
@@ -843,10 +1057,15 @@ int main(int argc, char **argv) {
     test_adversarial_patterns();
     test_extreme_bounce();
     test_sustained_noise();
+    test_init_completes_before_wdt();
+    test_power_on_sampling_race();
+    test_clean_press_latency();
+    test_toggle_parity_invariant();
     test_enters_idle_sleep();
     test_watchdog_not_tripped_normally();
 #ifdef TARGET_T85
     test_watchdog_backstop_reset();
+    test_watchdog_timeout_within_bound();
 #else
     test_watchdog_backstop_documented();
 #endif

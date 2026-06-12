@@ -122,7 +122,8 @@ FAST_SIM_DEFS  = -DSIM_RANDOM_NOISE_DURATION_MS=5000u \
                  -DSIM_EMI_BURSTS=40 \
                  -DSIM_EXTREME_BOUNCE_PRESSES=5 \
                  -DSIM_ADVERSARIAL_CYCLES=20 \
-                 -DSIM_POWER_ON_BOOTS=10
+                 -DSIM_POWER_ON_BOOTS=10 \
+                 -DSIM_PARITY_ITERS=200u
 # Full (exhaustive) sizing == the in-source defaults, so no extra -D needed.
 FULL_HOST_DEFS =
 FULL_SIM_DEFS  =
@@ -139,14 +140,43 @@ AVR_IO_HEADER      := $(shell $(CC) -print-file-name=avr/io.h)
 AVR_LIBC_INCLUDE   := $(patsubst %/avr/, %, $(dir $(AVR_IO_HEADER)))
 AVR_GCC_INCLUDE    := $(shell $(CC) -print-file-name=include)
 AVR_ARCH           := $(shell $(CC) -mmcu=$(MCU) -dM -E - < /dev/null | awk '/__AVR_ARCH__/ { print $$3; exit }')
-CLANG_TIDY_FLAGS   ?= -target avr -mmcu=$(MCU) -DF_CPU=$(F_CPU) -D__AVR__ -D__AVR_ATtiny13A__ \
+# Shared clang target/flags so clang-tidy AND the clang static analyzer parse
+# the firmware exactly as the AVR build sees it.
+CLANG_AVR_FLAGS    ?= -target avr -mmcu=$(MCU) -DF_CPU=$(F_CPU) -D__AVR__ -D__AVR_ATtiny13A__ \
                       -D__AVR_DEVICE_NAME__=$(MCU) $(if $(AVR_ARCH),-D__AVR_ARCH__=$(AVR_ARCH)) \
                       -D__AVR_HAVE_PRR_PRTIM0 \
                       -Wno-macro-redefined \
                       $(if $(AVR_LIBC_INCLUDE),-I$(AVR_LIBC_INCLUDE)) \
                       $(if $(AVR_GCC_INCLUDE),-I$(AVR_GCC_INCLUDE))
+CLANG_TIDY_FLAGS   ?= $(CLANG_AVR_FLAGS)
+# clang-tidy check set: the default plus a curated set of bug-finding groups.
+# misc-include-cleaner is excluded because it flags the (correct) transitive
+# include of <stdint.h>/<stdint.h> macros via <avr/io.h>, which is idiomatic
+# for AVR firmware and not worth churning the includes over.
+CLANG_TIDY_CHECKS  ?= -*,bugprone-*,cert-*,clang-analyzer-*,misc-*,-misc-include-cleaner,readability-misleading-indentation,performance-*
+# clang-tidy command (override to point at a different tidy binary).
+CLANG_TIDY         ?= clang-tidy
 # The analysis command itself (override to use cppcheck, a different tidy, etc.)
-ANALYZE_CMD        ?= clang-tidy $(TARGET).c -- $(CLANG_TIDY_FLAGS)
+ANALYZE_CMD        ?= $(CLANG_TIDY) --checks='$(CLANG_TIDY_CHECKS)' --warnings-as-errors='*' \
+                      $(TARGET).c -- $(CLANG_TIDY_FLAGS)
+
+# cppcheck: a second, independent analyzer. Uses the AVR platform model and the
+# avr-libc include path so it sees the real register definitions.
+CPPCHECK           ?= cppcheck
+CPPCHECK_FLAGS     ?= --enable=warning,style,performance,portability \
+                      --std=c11 --platform=avr8 --error-exitcode=2 \
+                      --inline-suppr \
+                      --suppress=missingIncludeSystem \
+                      --suppress=unmatchedSuppression \
+                      --suppress=unusedStructMember \
+                      -D__AVR__ -D__AVR_ATtiny13A__ -DF_CPU=$(F_CPU) \
+                      $(if $(AVR_LIBC_INCLUDE),-I$(AVR_LIBC_INCLUDE))
+
+# Clang static analyzer (deep symbolic-execution path analysis). This is the
+# stand-in for `gcc -fanalyzer`: the system avr-gcc (7.3.0) predates -fanalyzer
+# (which needs GCC 10+), but clang's analyzer understands -target avr and the
+# real avr-libc headers, giving equivalent inter-procedural flow analysis.
+CLANG              ?= clang
 
 # --- Firmware compile/link flags ---------------------------------------------
 # -Os                 optimize for size (tiny flash)
@@ -165,8 +195,9 @@ LDFLAGS = -mmcu=$(MCU) -Wl,--gc-sections
 .PHONY: all all13 all85 clean size readfuses fuses flash program help \
         test test-fast test-long stress \
         test-host test-sim test-sim-t85 \
-        test-model-check test-fault-inject \
-        trace analyze coverage coverage-check coverage-clean \
+        test-model-check test-fault-inject test-fuses test-symbolic \
+        analyze analyze-tidy analyze-cppcheck analyze-deep \
+        trace coverage coverage-check coverage-clean \
         size85 fuses85 flash85 program85
 
 # ============================================================================
@@ -239,8 +270,9 @@ clean:
 	rm -f $(TARGET).elf $(TARGET).hex \
 		$(TARGET85).elf $(TARGET85).hex \
 		test/test_logic_host test/test_sim test/test_sim_t85 test/test_trace \
-		test/test_model_check \
-		bypass_trace.vcd
+		test/test_model_check test/test_symbolic test/test_fuses \
+		test/test_symbolic.bc \
+		bypass_trace.vcd $(TARGET).plist
 
 # ============================================================================
 # FLASH / FUSES -- ATtiny13a (hardware)
@@ -271,10 +303,11 @@ program: fuses flash
 # ============================================================================
 
 # Default `make test`: FAST workload. Runs static analysis, the host golden
-# model, the exhaustive state-space model check, the fault-injection sim tests,
-# both simavr firmware suites, and enforces a coverage floor on the model.
-# Designed to finish in ~1 minute for quick edit/build/test loops and CI.
-test: analyze test-host test-model-check test-fault-inject test-sim test-sim-t85 coverage-check
+# model, the exhaustive state-space model check, the symbolic single-step proof,
+# the fuse-byte check, the fault-injection sim tests, both simavr firmware
+# suites, and enforces a coverage floor on the model. Designed to finish in
+# ~1 minute for quick edit/build/test loops and CI.
+test: analyze test-host test-model-check test-symbolic test-fuses test-fault-inject test-sim test-sim-t85 coverage-check
 	@echo "=== all fast pre-hardware tests passed ==="
 
 # Explicit alias for the fast suite (same as `make test`).
@@ -285,7 +318,7 @@ test-fast: test
 # overrides). Use before tagging a release or signing off for hardware.
 test-long: HOST_DEFS = $(FULL_HOST_DEFS)
 test-long: SIM_DEFS  = $(FULL_SIM_DEFS)
-test-long: clean-tests analyze test-host test-model-check test-fault-inject test-sim test-sim-t85 coverage-check
+test-long: clean-tests analyze test-host test-model-check test-symbolic test-fuses test-fault-inject test-sim test-sim-t85 coverage-check
 	@echo "=== all FULL (exhaustive) pre-hardware tests passed ==="
 
 # Friendly alias for the exhaustive suite (same as `make test-long`).
@@ -296,7 +329,8 @@ stress: test-long
 .PHONY: clean-tests
 clean-tests:
 	rm -f test/test_logic_host test/test_sim test/test_sim_t85 \
-	      test/test_model_check test/test_trace
+	      test/test_model_check test/test_symbolic test/test_fuses \
+	      test/test_trace
 
 # Golden-model unit tests: an INDEPENDENT host (PC) re-implementation of the
 # debounce algorithm. No AVR involved -- fast logic verification that the
@@ -319,6 +353,51 @@ test-model-check: test/test_model_check
 # Build rule for the state-space checker.
 test/test_model_check: test/test_model_check.c test/bypass_config_host.h bypass_config.h
 	$(HOSTCC) $(HOST_CFLAGS) -Itest $< -o $@
+
+# Symbolic / exhaustive single-step property check: proves the per-step
+# transition invariants of step() hold for EVERY (state x input) combination in
+# the full domain (the inductive step behind the whole-program invariants).
+# Default build enumerates exhaustively; if KLEE is installed, `make
+# test-symbolic-klee` runs the same assertions under symbolic execution.
+test-symbolic: test/test_symbolic
+	./test/test_symbolic
+
+# Build rule for the symbolic step checker.
+test/test_symbolic: test/test_symbolic.c test/bypass_config_host.h bypass_config.h
+	$(HOSTCC) $(HOST_CFLAGS) -Itest $< -o $@
+
+# Optional: run the SAME single-step properties under KLEE symbolic execution
+# (only if KLEE is installed). KLEE explores the symbolic input domain and
+# proves the assertions with an SMT solver rather than by enumeration.
+.PHONY: test-symbolic-klee
+KLEE        ?= klee
+KLEE_CLANG  ?= clang
+test-symbolic-klee:
+	@if command -v $(KLEE) >/dev/null 2>&1 && command -v $(KLEE_CLANG) >/dev/null 2>&1; then \
+		$(KLEE_CLANG) -DUSE_KLEE -I$(SIMAVR_INC) -Itest -emit-llvm -c -g -O0 \
+			test/test_symbolic.c -o test/test_symbolic.bc && \
+		$(KLEE) --exit-on-error test/test_symbolic.bc; \
+	else \
+		echo "KLEE or its clang not installed; the exhaustive 'test-symbolic' target"; \
+		echo "covers the same input domain. Install klee to enable SMT-backed proof."; \
+	fi
+
+# Fuse-byte verification: decode the EXACT lfuse/hfuse bytes this Makefile will
+# burn (LFUSE/HFUSE for t13, LFUSE85/HFUSE85 for t85) and assert they match the
+# documented design intent (clock, BOD 2.7V, ISP/RESET preserved, etc). Catches
+# a wrong fuse before it reaches silicon -- invisible to every other test.
+test-fuses: test/test_fuses
+	./test/test_fuses
+
+# Build rule for the fuse checker. Fuse byte values are injected from the
+# Makefile variables (single source of truth) via -D. Depends on the Makefile
+# so that editing a fuse byte forces a rebuild (the values live in the recipe,
+# not in a tracked source file).
+test/test_fuses: test/test_fuses.c Makefile
+	$(HOSTCC) $(HOST_CFLAGS) \
+		-DT13_LFUSE=$(LFUSE) -DT13_HFUSE=$(HFUSE) \
+		-DT85_LFUSE=$(LFUSE85) -DT85_HFUSE=$(HFUSE85) \
+		$< -o $@
 
 # simavr integration tests (ATtiny13a): run the REAL compiled firmware .elf in
 # the instruction-accurate simulator, drive PB0, and assert PB1/PB2 behavior.
@@ -365,19 +444,58 @@ test/test_trace: test/test_sim.c $(TARGET).elf
 # STATIC ANALYSIS & COVERAGE
 # ============================================================================
 
-# Static analysis of the firmware. Prefers clang-tidy (ANALYZE_CMD); falls back
-# to avr-gcc -fanalyzer; otherwise errors out with guidance. Note: -Wconversion
-# is already enforced by the normal build (CFLAGS), so this target focuses on
-# deeper flow analysis.
-analyze: $(TARGET).c
+# Static analysis of the firmware. Runs THREE independent analyzers and gates
+# the build on any finding:
+#   - clang-tidy   : lint + bug-pattern checks (ANALYZE_CMD)
+#   - cppcheck     : second-opinion static analyzer (analyze-cppcheck)
+#   - clang --analyze : deep symbolic-execution path analysis (analyze-deep),
+#                       the stand-in for `gcc -fanalyzer` since the installed
+#                       avr-gcc (7.3) predates it.
+# -Wconversion is already enforced by the normal build (CFLAGS); these targets
+# focus on deeper flow/lint analysis.
+analyze: analyze-tidy analyze-cppcheck analyze-deep
+	@echo "=== static analysis (clang-tidy + cppcheck + clang-analyzer) clean ==="
+
+# clang-tidy (or whatever ANALYZE_CMD points at). Falls back to avr-gcc
+# -fanalyzer if a NEWER avr-gcc that supports it is ever installed; otherwise
+# errors with guidance.
+analyze-tidy: $(TARGET).c
 	@cmd=$(word 1,$(ANALYZE_CMD)); \
 	if command -v $$cmd >/dev/null 2>&1; then \
+		echo "clang-tidy: $$cmd"; \
 		$(ANALYZE_CMD); \
 	elif $(CC) -fsyntax-only -fanalyzer -xc /dev/null >/dev/null 2>&1; then \
+		echo "avr-gcc -fanalyzer"; \
 		$(CC) $(CFLAGS) -fanalyzer -c $< -o $(TARGET).analyze.o; \
 		rm -f $(TARGET).analyze.o; \
 	else \
-		echo "No static analysis tool available. Set ANALYZE_CMD=... or install clang-tidy / avr-gcc with -fanalyzer."; \
+		echo "No clang-tidy and avr-gcc lacks -fanalyzer. Install clang-tidy or set ANALYZE_CMD=..."; \
+		exit 1; \
+	fi
+
+# cppcheck second-opinion analyzer (gates via --error-exitcode=2).
+analyze-cppcheck: $(TARGET).c
+	@if command -v $(CPPCHECK) >/dev/null 2>&1; then \
+		echo "cppcheck: $(CPPCHECK)"; \
+		$(CPPCHECK) $(CPPCHECK_FLAGS) $(TARGET).c; \
+	else \
+		echo "cppcheck not installed; skipping (install cppcheck to enable)"; \
+	fi
+
+# Deep path analysis via the clang static analyzer on the AVR target. Emits
+# diagnostics as text and FAILS the build on any report (-Werror). This is the
+# `-fanalyzer`-equivalent gate.
+analyze-deep: $(TARGET).c
+	@if command -v $(CLANG) >/dev/null 2>&1; then \
+		echo "clang --analyze (-target avr): $(CLANG)"; \
+		$(CLANG) --analyze -Xclang -analyzer-output=text -Werror \
+			$(CLANG_AVR_FLAGS) $(TARGET).c; \
+	elif $(CC) -fsyntax-only -fanalyzer -xc /dev/null >/dev/null 2>&1; then \
+		echo "clang unavailable; using avr-gcc -fanalyzer"; \
+		$(CC) $(CFLAGS) -fanalyzer -c $(TARGET).c -o $(TARGET).analyze.o; \
+		rm -f $(TARGET).analyze.o; \
+	else \
+		echo "No deep analyzer available (need clang or avr-gcc>=10 with -fanalyzer)."; \
 		exit 1; \
 	fi
 
@@ -439,12 +557,16 @@ help:
 	@echo "  test-long       FULL exhaustive suite (minutes); alias: stress"
 	@echo "  test-host       golden-model algorithm tests (host)"
 	@echo "  test-model-check exhaustive state-space proof of invariants"
+	@echo "  test-symbolic   exhaustive single-step property proof of step()"
+	@echo "  test-symbolic-klee  same properties under KLEE (if installed)"
+	@echo "  test-fuses      decode + verify the design fuse bytes (t13 + t85)"
 	@echo "  test-sim        real firmware in simavr (ATtiny13a)"
 	@echo "  test-sim-t85    real firmware in simavr (ATtiny85)"
 	@echo "  test-fault-inject  corrupt state, verify watchdog recovery (t85)"
 	@echo "  trace           emit bypass_trace.vcd (GTKWave)"
 	@echo "Analysis:"
-	@echo "  analyze         static analysis (clang-tidy / -fanalyzer)"
+	@echo "  analyze         static analysis (clang-tidy + cppcheck + clang-analyzer)"
+	@echo "  analyze-tidy / analyze-cppcheck / analyze-deep  individual analyzers"
 	@echo "  coverage        human-readable golden-model coverage report"
 	@echo "  coverage-check  fail if coverage < COVERAGE_MIN ($(COVERAGE_MIN)%)"
 	@echo "Hardware (ATtiny13a; *85 variants for ATtiny85):"
