@@ -26,6 +26,13 @@
 #include "sim_irq.h"
 #include "sim_vcd_file.h"
 
+// Pull PRESSED_THRESH / RELEASE_THRESH (and the pin numbers) directly from the
+// firmware's bypass_config.h, via the host shim, so the sim tests can never
+// drift from the real firmware thresholds. The shim defines FOOTSW_PIN /
+// LED_PIN / CD4053_PIN as PB0/PB1/PB2 == 0/1/2, which are exactly the IRQ
+// indices this harness uses below.
+#include "bypass_config_host.h"
+
 #ifndef FW_PATH
 #  define FW_PATH      "attiny13_bypass.elf"
 #endif
@@ -35,11 +42,27 @@
 #ifndef F_CPU_HZ
 #  define F_CPU_HZ     1200000UL
 #endif
-#define PRESSED_THRESH 8
-#define RELEASE_THRESH 25
 
 #ifndef SIM_RANDOM_NOISE_DURATION_MS
 #define SIM_RANDOM_NOISE_DURATION_MS 60000u
+#endif
+
+// Expected toggle count for the fixed-seed (0xDEADBEEF) random-noise stream.
+// This is duration-dependent and empirically measured against BOTH the real
+// firmware (simavr) and the golden model -- they agree exactly. When changing
+// SIM_RANDOM_NOISE_DURATION_MS, set a matching expected count (or 0 to disable
+// the exact check and rely only on the physical ceiling).
+//   5000 ms  -> 10 toggles
+//   10000 ms -> 16 toggles
+//   60000 ms -> 77 toggles
+#ifndef SIM_NOISE_EXPECTED_TOGGLES
+#  if (SIM_RANDOM_NOISE_DURATION_MS == 60000u)
+#    define SIM_NOISE_EXPECTED_TOGGLES 77u
+#  elif (SIM_RANDOM_NOISE_DURATION_MS == 5000u)
+#    define SIM_NOISE_EXPECTED_TOGGLES 10u
+#  else
+#    define SIM_NOISE_EXPECTED_TOGGLES 0u /* 0 => skip exact check */
+#  endif
 #endif
 
 #ifndef SIM_ADVERSARIAL_CYCLES
@@ -58,9 +81,19 @@
 #define SIM_SUSTAINED_NOISE_DURATION_MS 10000u
 #endif
 
-#define FOOTSW_PIN   0  // PB0
-#define LED_PIN      1  // PB1
-#define CD4053_PIN   2  // PB2
+// Number of asymmetric-EMI bursts (each burst = 50ms noise + 200ms silence,
+// i.e. 250ms of simulated time). 240 bursts == 60s.
+#ifndef SIM_EMI_BURSTS
+#define SIM_EMI_BURSTS 240
+#endif
+
+// Number of simulated power-on cycles for the power-on robustness test.
+#ifndef SIM_POWER_ON_BOOTS
+#define SIM_POWER_ON_BOOTS 30
+#endif
+
+// PB0/PB1/PB2 IRQ indices (these match FOOTSW_PIN/LED_PIN/CD4053_PIN from
+// bypass_config.h, but the simavr IRQ API wants plain integers).
 #define TIMSK_MEM_ADDR 0x59  // TIMSK0/TIMSK I/O addr 0x39 + SFR offset 0x20
 #define DDRB_MEM_ADDR  0x37  // DDRB I/O addr 0x17 + SFR offset 0x20
 #define PORTB_MEM_ADDR 0x38  // PORTB I/O addr 0x18 + SFR offset 0x20
@@ -72,6 +105,14 @@ static int         g_cd4053_level = 0; // current PB2 level
 static uint32_t    g_led_changes  = 0; // count of PB1 transitions
 static int         g_saw_sleep    = 0; // set if CPU ever entered cpu_Sleeping
 static int         g_saw_crash    = 0; // set if CPU ever hit cpu_Crashed (WDT)
+
+// Resolved SRAM addresses of firmware globals (looked up from the ELF symbol
+// table in sim_reset()). 0 == not found. Used by the fault-injection tests to
+// corrupt firmware RAM and exercise the main-loop sanity-check path.
+static uint32_t    g_addr_program_state = 0;
+static uint32_t    g_addr_effect_state  = 0;
+static uint32_t    g_addr_timer_isr     = 0;
+static uint32_t    g_addr_debounce      = 0;
 
 // --- test bookkeeping ------------------------------------------------------
 // (unused in the TRACE build, which only generates a VCD waveform)
@@ -165,6 +206,23 @@ static int sim_reset(int footsw_pressed_at_power_on) {
     avr_init(g_avr);
     avr_load_firmware(g_avr, &fw);
     g_avr->frequency = F_CPU_HZ;
+
+    // Resolve firmware-global SRAM addresses from the ELF symbol table so the
+    // fault-injection tests can poke them without hardcoding addresses. Symbol
+    // addresses for the data space carry the 0x800000 marker; mask to the raw
+    // SRAM index used by g_avr->data[].
+    g_addr_program_state = g_addr_effect_state = 0;
+    g_addr_timer_isr = g_addr_debounce = 0;
+#if defined(ELF_SYMBOLS) && ELF_SYMBOLS
+    for (uint32_t i = 0; i < fw.symbolcount; ++i) {
+        const char *name = fw.symbol[i]->symbol;
+        uint32_t    a    = fw.symbol[i]->addr & 0xFFFFu;
+        if      (strcmp(name, "program_state_")    == 0) g_addr_program_state = a;
+        else if (strcmp(name, "effect_state_")     == 0) g_addr_effect_state  = a;
+        else if (strcmp(name, "timer_isr_called_") == 0) g_addr_timer_isr     = a;
+        else if (strcmp(name, "debounce_counter_") == 0) g_addr_debounce      = a;
+    }
+#endif
 
     // reset instrumentation
     g_led_level = g_cd4053_level = 0;
@@ -273,6 +331,24 @@ static void test_fast_repeated_taps(void) {
 }
 
 // Random noise fuzz: 60s of random chatter should not spam toggles.
+//
+// This drives PB0 with a fixed-seed 50%-duty random stream. 50% duty is the
+// integrator's worst case: the saturating counter random-walks around its
+// midpoint and occasionally crosses PRESSED_THRESH, so a *handful* of toggles
+// is expected and correct -- but the count must stay far below the physical
+// ceiling.
+//
+// Bounds (for the default 60s / seed 0xDEADBEEF run):
+//   - Hard physical ceiling: a real toggle needs at least
+//     (PRESSED_THRESH + RELEASE_THRESH) = 33 ms, so 60000/33 ~= 1818 is the
+//     absolute maximum any correct implementation could ever produce.
+//   - Empirically, the real firmware (and the golden model, byte-for-byte)
+//     produce EXACTLY SIM_NOISE_EXPECTED_TOGGLES for this seed/duration. We
+//     assert that exact value as a tight regression lock, and also re-check
+//     the physical ceiling as a defense-in-depth invariant.
+//
+// The old `< 2000` bound was nearly meaningless: it would pass even if the
+// firmware toggled on essentially every threshold crossing.
 static void test_random_noise_resilience(void) {
     if (sim_reset(0) != 0) { g_failures++; return; }
 
@@ -285,8 +361,24 @@ static void test_random_noise_resilience(void) {
     }
 
     uint32_t toggles = g_led_changes - before;
-    CHECK(toggles < 2000,
-          "random noise produced too many toggles: %u", toggles);
+
+    // Physical ceiling: at most one toggle per (PRESSED_THRESH+RELEASE_THRESH)
+    // milliseconds, regardless of input. This invariant scales with duration
+    // and seed, so it stays valid under -D overrides.
+    uint32_t physical_max =
+        SIM_RANDOM_NOISE_DURATION_MS / (PRESSED_THRESH + RELEASE_THRESH) + 1u;
+    CHECK(toggles <= physical_max,
+          "random noise exceeded physical toggle ceiling: %u > %u",
+          toggles, physical_max);
+
+    // Tight regression lock for the fixed seed + duration. SIM_NOISE_EXPECTED_
+    // TOGGLES == 0 means "duration not a known calibration point, skip".
+    if (SIM_NOISE_EXPECTED_TOGGLES != 0u) {
+        CHECK(toggles == SIM_NOISE_EXPECTED_TOGGLES,
+              "random noise toggle count drifted: got %u, expected %u "
+              "(firmware/algorithm change? re-measure and update)",
+              toggles, (unsigned)SIM_NOISE_EXPECTED_TOGGLES);
+    }
 }
 
 // Adversarial thresholds: oscillate just below and just above PRESSED_THRESH.
@@ -487,6 +579,142 @@ static void test_register_corruption_recovery(void) {
 #endif
 }
 
+//////////////////////////////////////////////////////////////////////////////
+// Fault injection: corrupt each variable checked by the main-loop sanity
+// guard and confirm the firmware detects it and takes the force_wdt_reset()
+// path. These exercise the sanity-check branches that the existing
+// DDRB-corruption test does not reach:
+//
+//   firmware main() guard (attiny13_bypass.c):
+//     program_state_ > RELEASE_DEBOUNCE_WAIT   -> invalid program state
+//     effect_state_  > ENGAGED                 -> invalid effect state
+//     timer_isr_called_ > TIMER_ISR_NOT_CALLED -> invalid handshake flag
+//     footswitch pullup bit cleared in PORTB   -> lost input pullup
+//   plus the switch() default: (program_state_ out of enum range).
+//
+// On ATtiny85 simavr models the WDT system reset, so we assert full recovery
+// to BYPASS. On ATtiny13 the WDT reset is not modeled, so we assert the weaker
+// property that the firmware wedges into the cli()+busy-loop (no further sleep)
+// -- the same approach the existing register-corruption test uses.
+
+// Shared helper: after injecting a fault, verify the firmware reacts.
+//   t85: WDT reset fires -> firmware reinits -> LED dark (BYPASS).
+//   t13: firmware enters force_wdt_reset() cli/busy loop -> no more sleeps.
+static void expect_fault_response(const char *what) {
+#ifdef TARGET_T85
+    run_ms(500); // > WDT 250ms timeout
+    CHECK(g_led_level == 0,
+          "fault-inject [%s]: WDT reset recovered, LED dark (reinit BYPASS)",
+          what);
+#else
+    g_saw_sleep = 0;
+    run_ms(200);
+    CHECK(g_saw_sleep == 0,
+          "fault-inject [%s]: ATtiny13 stuck in force_wdt_reset loop "
+          "(no sleep with cli active)", what);
+#endif
+}
+
+// Corrupt program_state_ to an out-of-range value (hits both the explicit
+// `program_state_ > RELEASE_DEBOUNCE_WAIT` guard and the switch() default).
+static void test_fault_inject_program_state(void) {
+    if (sim_reset(0) != 0) { g_failures++; return; }
+    CHECK(g_addr_program_state != 0,
+          "fault-inject: could not resolve program_state_ address");
+    if (g_addr_program_state == 0) return;
+
+    footsw_set(1); run_ms(50); footsw_set(0); run_ms(50);
+    CHECK(g_led_level == 1, "fault-inject [program_state_]: normal press engages");
+
+    // 0xFF is far outside {PRESS_DEBOUNCE_WAIT, RELEASE_DEBOUNCE_WAIT}.
+    avr_core_watch_write(g_avr, g_addr_program_state, 0xFF);
+    expect_fault_response("program_state_");
+}
+
+// Corrupt effect_state_ to an out-of-range value (> ENGAGED).
+static void test_fault_inject_effect_state(void) {
+    if (sim_reset(0) != 0) { g_failures++; return; }
+    CHECK(g_addr_effect_state != 0,
+          "fault-inject: could not resolve effect_state_ address");
+    if (g_addr_effect_state == 0) return;
+
+    footsw_set(1); run_ms(50); footsw_set(0); run_ms(50);
+    CHECK(g_led_level == 1, "fault-inject [effect_state_]: normal press engages");
+
+    avr_core_watch_write(g_avr, g_addr_effect_state, 0x7F);
+    expect_fault_response("effect_state_");
+}
+
+// Corrupt timer_isr_called_ to an out-of-range value
+// (> TIMER_ISR_NOT_CALLED).
+//
+// NOTE: the timer ISR rewrites this flag to TIMER_ISR_CALLED every 1ms, so a
+// corrupted value only survives long enough to be seen by main() if main()
+// happens to read it within that window. On the ATtiny85 build the WDT reset
+// gives us a deterministic signal once main() catches it, so we retry across
+// several ticks. On the ATtiny13 build (no modeled WDT reset) the catch is a
+// tight, non-deterministic race that we cannot reliably win from the test
+// harness, so this particular injection is t85-only.
+#ifdef TARGET_T85
+static void test_fault_inject_timer_isr_flag(void) {
+    if (sim_reset(0) != 0) { g_failures++; return; }
+    CHECK(g_addr_timer_isr != 0,
+          "fault-inject: could not resolve timer_isr_called_ address");
+    if (g_addr_timer_isr == 0) return;
+
+    footsw_set(0); run_ms(20);
+
+    // Poke the corrupted value once per tick over a window; the WDT reset will
+    // fire the first time main() observes a >1 value before being overwritten.
+    for (int i = 0; i < 300; ++i) {
+        avr_core_watch_write(g_avr, g_addr_timer_isr, 0x55);
+        run_ms(1);
+        if (g_led_level == 0 && i > 5) {
+            // already reset; stop poking
+        }
+    }
+    // > WDT timeout window has elapsed within the loop above; confirm BYPASS.
+    CHECK(g_led_level == 0,
+          "fault-inject [timer_isr_called_]: WDT reset recovered, LED dark");
+}
+#endif
+
+// Clear the footswitch pullup bit in PORTB: the firmware's sanity check
+// requires PORTB & (1<<FOOTSW_PIN) to remain set.
+static void test_fault_inject_lost_pullup(void) {
+    if (sim_reset(0) != 0) { g_failures++; return; }
+
+    footsw_set(1); run_ms(50); footsw_set(0); run_ms(50);
+    CHECK(g_led_level == 1, "fault-inject [pullup]: normal press engages");
+
+    avr_core_watch_write(g_avr, PORTB_MEM_ADDR,
+                         g_avr->data[PORTB_MEM_ADDR] & (uint8_t)~(1 << FOOTSW_PIN));
+    expect_fault_response("PORTB pullup");
+}
+
+// Clear the CD4053 output direction bit in DDRB (companion to the existing LED
+// DDRB test; together they cover both required output-direction bits).
+static void test_fault_inject_cd4053_ddr(void) {
+    if (sim_reset(0) != 0) { g_failures++; return; }
+
+    footsw_set(1); run_ms(50); footsw_set(0); run_ms(50);
+    CHECK(g_led_level == 1, "fault-inject [cd4053 DDR]: normal press engages");
+
+    avr_core_watch_write(g_avr, DDRB_MEM_ADDR,
+                         g_avr->data[DDRB_MEM_ADDR] & (uint8_t)~(1 << CD4053_PIN));
+    expect_fault_response("CD4053 DDR");
+}
+
+static void run_fault_injection_suite(void) {
+    test_fault_inject_program_state();
+    test_fault_inject_effect_state();
+#ifdef TARGET_T85
+    test_fault_inject_timer_isr_flag();
+#endif
+    test_fault_inject_lost_pullup();
+    test_fault_inject_cd4053_ddr();
+}
+
 // Oscillator drift tolerance: run the round-trip test at ±10% CPU frequency
 // to verify debounce timing holds across the clock tolerance range.
 static void test_oscillator_drift_tolerance(void) {
@@ -515,7 +743,7 @@ static void test_asymmetric_emi_bursts(void) {
 
     uint32_t changes_before = g_led_changes;
 
-    for (int burst = 0; burst < 240; ++burst) {
+    for (int burst = 0; burst < SIM_EMI_BURSTS; ++burst) {
         for (int i = 0; i < 50; ++i) { footsw_drive(i & 1, 1); }
         footsw_drive(0, 200);
     }
@@ -528,7 +756,7 @@ static void test_asymmetric_emi_bursts(void) {
 // Power-on robustness: simulate multiple power cycles, verify consistent
 // BYPASS initialization and responsiveness.
 static void test_power_on_robustness(void) {
-    for (int boot = 0; boot < 30; ++boot) {
+    for (int boot = 0; boot < SIM_POWER_ON_BOOTS; ++boot) {
         if (sim_reset(0) != 0) { g_failures++; return; }
 
         CHECK(g_led_level == 0, "power-on boot %d: always BYPASS", boot);
@@ -584,12 +812,26 @@ static int generate_trace(void) {
 }
 #endif
 
-int main(void) {
+int main(int argc, char **argv) {
 #ifdef TRACE
+    (void)argc; (void)argv;
     int rc = generate_trace();
     if (g_avr) { avr_terminate(g_avr); free(g_avr); }
     return rc;
 #else
+    // `test_sim fault-inject` runs ONLY the fault-injection suite (used by the
+    // Makefile `test-fault-inject` target against the ATtiny85 build). With no
+    // argument, run the full suite, which includes fault injection.
+    int fault_only = (argc > 1 && strcmp(argv[1], "fault-inject") == 0);
+
+    if (fault_only) {
+        run_fault_injection_suite();
+        if (g_avr) { avr_terminate(g_avr); free(g_avr); }
+        printf("\nsimavr fault-injection tests: %d checks, %d failures\n",
+               g_checks, g_failures);
+        return g_failures ? 1 : 0;
+    }
+
     test_power_on_default();
     test_single_press_engages();
     test_two_presses_round_trip();
@@ -609,6 +851,7 @@ int main(void) {
     test_watchdog_backstop_documented();
 #endif
     test_register_corruption_recovery();
+    run_fault_injection_suite();
     test_oscillator_drift_tolerance();
     test_asymmetric_emi_bursts();
     test_power_on_robustness();

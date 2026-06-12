@@ -11,12 +11,16 @@
 //   cc -std=c11 -Wall -Wextra -Werror test/test_logic_host.c -o test/test_logic_host
 //   ./test/test_logic_host
 //
-// The thresholds below MUST be kept in sync with attiny13_bypass.c.
+// The thresholds (RELEASE_THRESH / PRESSED_THRESH) come directly from the
+// firmware's bypass_config.h via the host shim, so the golden model can never
+// silently drift from the real firmware constants.
 
 #include <assert.h>
 #include <stdint.h>
 #include <stdio.h>
 #include <string.h>
+
+#include "bypass_config_host.h" // RELEASE_THRESH, PRESSED_THRESH (firmware truth)
 
 #ifndef MODEL_FUZZ_RANDOM_DURATION_MS
 #define MODEL_FUZZ_RANDOM_DURATION_MS 1000000u
@@ -38,8 +42,8 @@
 // Golden model: mirrors attiny13_bypass.c constants and logic exactly.
 //////////////////////////////////////////////////////////////////////////////
 
-#define RELEASE_THRESH 25
-#define PRESSED_THRESH 8
+// RELEASE_THRESH and PRESSED_THRESH come from bypass_config.h (via the host
+// shim included above) -- the single source of truth shared with the firmware.
 
 typedef enum { PRESS_DEBOUNCE_WAIT = 0, RELEASE_DEBOUNCE_WAIT } program_state_t;
 typedef enum { BYPASS = 0, ENGAGED } effect_state_t;
@@ -331,7 +335,7 @@ static void test_fuzz_extreme_bounce(void) {
     // Simulate 10 presses, each with 50ms of 1ms chatter before settling
     for (int press = 0; press < MODEL_FUZZ_EXTREME_BOUNCE_PRESSES; ++press) {
         // 50ms of random chatter
-        uint32_t rng = 0x12345678 + press;
+        uint32_t rng = 0x12345678u + (uint32_t)press;
         for (int i = 0; i < 50; ++i) {
             int pin_low = (xorshift32(&rng) & 1);
             model_step_ms(&m, pin_low);
@@ -460,8 +464,8 @@ static void test_fuzz_power_on_release_timing(void) {
         model_t m; model_init(&m, 1); // power-on pressed
 
         // Hold for random duration (10-1000ms)
-        uint32_t hold_ms = 10 + (xorshift32(&rng) % 991);
-        drive(&m, 1, hold_ms);
+        uint32_t hold_ms = 10u + (xorshift32(&rng) % 991u);
+        drive(&m, 1, (int)hold_ms);
         
         CHECK(m.toggle_count == 0,
               "power-on-pressed trial %d: no toggle during hold", trial);

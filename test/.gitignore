@@ -1,3 +1,5 @@
 test_logic_host
 test_sim
 test_sim_t85
+test_model_check
+test_trace
