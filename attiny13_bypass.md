@@ -52,6 +52,8 @@ adverse conditions:
 == Reliability Goals
     - Reference-quality
     - World-class touring musician grade
+    - Suitable for use by established market-leading manufacturers
+      (e.g. Boss, Ibanez)
     - Under assumed operating conditions, one physical press must
       generate exactly one state change
     - One physical release must generate zero state changes
@@ -125,7 +127,7 @@ hardware-level EMI/RFI protections and also aid with debounce:
 CD4053 Note:
     - the newer TMUX4053 switches can be controlled with logic
       levels lower than the voltage supply (e.g. CMOS, TTL)
-    - the older CD4053 needs a logic "true" to be the same level as
+    - the older CD4053 needs logic "true" to be the same level as
       the voltage supply
     - the ATTiny13a will run at 5v, but the 4053 will run at the
       effect voltage (9 to 18 volts)
@@ -144,6 +146,8 @@ CD4053 Note:
     - the 4053 is wired such that:
         - control pins high = bypass
         - control pins low = engaged
+    - assume 2n7000/2n7002 mosfets for CD4053 control and LED
+      control
 
 
 == Toolchain
