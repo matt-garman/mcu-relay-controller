@@ -92,8 +92,15 @@ typedef enum {
 // PROGRAM GLOBALS
 //////////////////////////////////////////////////////////////////////////////
 
-effect_state_t effect_state_; // not touched in ISR, don't need volatile
-program_state_t program_state_; // not touched in ISR, don't need volatile
+// note: effect_state_ and program_state_ are not touched in the ISRs, so
+// technically don't need to be volatile; however, without volatile, these
+// variables might be local stack copies from memory depending on how the
+// compiler generates code, which would make the the memory-corruption
+// sanity check in the main loop worthless.  So we make them volatile for the
+// purposes of preventing compiler output that would render the sanity check
+// useless.
+volatile effect_state_t effect_state_;
+volatile program_state_t program_state_;
 volatile timer_isr_called_t timer_isr_called_;
 volatile uint8_t debounce_counter_;
 
@@ -183,6 +190,8 @@ static void init(void) {
     static_assert(RELEASE_THRESH > PRESSED_THRESH, "RELEASE_THRESH <= PRESSED_THRESH");
     static_assert(PRESSED_THRESH < UINT8_MAX,      "PRESSED_THRESH >= UINT8_MAX");
     static_assert(PRESSED_THRESH > 0,              "PRESSED_THRESH <= 0");
+    static_assert(1 == sizeof(effect_state_t),     "sizeof(effect_state_t) != 1, use -fshort-enums");
+    static_assert(1 == sizeof(timer_isr_called_t), "sizeof(timer_isr_called_t) != 1, use -fshort-enums");
 
     // disable interrupts (don't want init() to be interrupted); will
     // re-enable at end of function
@@ -195,10 +204,19 @@ static void init(void) {
     // independent of the system clock; it has *very* loose tolerance.  We
     // should expect our 250ms watchdog timeout to be 100-350ms in practice.
     //
+    // Also note: after a watchdog-triggered reset, WDTCR resets to 0 with WDE
+    // forced on by WDRF, so the effective timeout is ~16ms until wdt_enable()
+    // runs.  With a 50% margin, this could be as low as 7-8ms.
+    //
     // We need to ensure that we don't create a WDT reset loop by making
-    // init() so long that the WDT bites.  At the time of this writing, init()
-    // compiles to 100s of instructions, so at 1.2 / 1.0 MHz, should complete
-    // in 100s of microseconds - a generous margin even with a 100ms WDT.
+    // init() so long that the WDT bites.  Hence, one of the first things we
+    // do in init() is reset the WDT and then set the timeout to 250ms.  After
+    // RESET, we expect a few dozen instructions, therefore a few dozen
+    // microseconds until wdt_reset()/wdt_enable() is called.
+    //
+    // Therefore, there is a few milliseconds of margin against WDT reset
+    // loop; but the WDT reset and re-arm should remain at the very start of
+    // this function.
     wdt_reset(); // pet the dog (init() could be called from previous WDT timeout)
     MCUSR &= (uint8_t)~(1 << WDRF); // must clear WDRF before WDE can be cleared
     wdt_enable(WDTO_250MS); // (re-)arm the WDT
