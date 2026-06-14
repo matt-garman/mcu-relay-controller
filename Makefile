@@ -165,6 +165,7 @@ CLANG_AVR_FLAGS    ?= -target avr -mmcu=$(MCU) -DF_CPU=$(F_CPU) -D__AVR__ -D__AV
                       -D__AVR_DEVICE_NAME__=$(MCU) $(if $(AVR_ARCH),-D__AVR_ARCH__=$(AVR_ARCH)) \
                       -D__AVR_HAVE_PRR_PRTIM0 \
                       -Wno-macro-redefined \
+					  -fshort-enums \
                       $(if $(AVR_LIBC_INCLUDE),-I$(AVR_LIBC_INCLUDE)) \
                       $(if $(AVR_GCC_INCLUDE),-I$(AVR_GCC_INCLUDE))
 CLANG_TIDY_FLAGS   ?= $(CLANG_AVR_FLAGS)
