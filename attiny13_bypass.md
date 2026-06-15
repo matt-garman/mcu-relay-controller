@@ -307,6 +307,8 @@ State machine (main loop, evaluated after each ISR wake):
 
 === Timing Diagram
 
+Diagram 1: Typical Case
+
                         |<-- PRESSED_THRESH -->|                  |
                         |        (8ms)         |                  |
    counter:  0  1  2  3  4  5  6  7 [8→25] 24 23 22 ... 2  1  0
@@ -321,8 +323,10 @@ State machine (main loop, evaluated after each ISR wake):
 
    LED/4053: dark                        lit                                 (ready for next press)
 
-  A second diagram showing the EMI/noise rejection case is also worth including — it shows the counter climbing to 7, then
-  noise interrupting and the counter falling back, never reaching 8:
+
+Diagram 2: EMI/Noise Rejection Case
+
+It shows the counter climbing to 7, then noise interrupting and the counter falling back, never reaching 8:
 
    counter:  0  1  2  3  4  5  6  7  6  5  4  3  2  1  0  0  0  0 ...
                                                                  (threshold never reached)
