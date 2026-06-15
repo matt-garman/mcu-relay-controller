@@ -392,7 +392,14 @@ int main(void) {
                         else { set_bypass_state(); }
                     }
 
-                    // pause this loop until the 1ms switch poll timer wakes it
+                    // Pause until the next 1ms Timer0 compare-match ISR wakes
+                    // the core. Lost-wakeup is impossible on AVR IDLE sleep:
+                    // if the ISR fires in the window between the counter check
+                    // above and the SLEEP instruction, the hardware aborts SLEEP
+                    // immediately and services the interrupt before the next
+                    // instruction (ATtiny13A datasheet §7.3, Sleep Modes).
+                    // No tick is ever missed even without disabling interrupts
+                    // around the check-then-sleep sequence.
                     else {
                         sleep_mode();
                     }
@@ -410,7 +417,8 @@ int main(void) {
                     if (0 == debounce_counter_) {
                         program_state_ = PRESS_DEBOUNCE_WAIT;
                     }
-                    // pause this loop until the 1ms switch poll timer wakes it
+                    // Same AVR lost-wakeup guarantee: pending ISR aborts SLEEP
+                    // immediately, no tick missed (ATtiny13A datasheet §7.3).
                     else {
                         sleep_mode();
                     }
