@@ -18,9 +18,19 @@ The firmware is bundled with an extensive test and validation suite.
 the project's overall goal is to be reference-quality, suitable for
 use in professional, touring-grade effects.
 
-See
+See DESIGN_DOCUMENTATION.md for the complete firmware description
+and design details.
 
 
 # Quickstart
 
-See TOOLCHAIN.md for environmental details.
+Requres avrtools, assumes a USBasp programmer, and a fresh ATtiny13a
+chip:
+
+```
+make
+make program
+```
+
+See TOOLCHAIN.md for full environmental details.  
+
