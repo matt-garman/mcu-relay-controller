@@ -209,14 +209,15 @@ ISR(TIM0_COMPA_vect) {
 static void init(void) {
 
     // compile-time sanity checks
-    static_assert(RELEASE_THRESH < UINT8_MAX,      "RELEASE_THRESH >= UINT8_MAX");
-    static_assert(RELEASE_THRESH > 0,              "RELEASE_THRESH <= 0");
-    static_assert(RELEASE_THRESH > PRESSED_THRESH, "RELEASE_THRESH <= PRESSED_THRESH");
-    static_assert(PRESSED_THRESH < UINT8_MAX,      "PRESSED_THRESH >= UINT8_MAX");
-    static_assert(PRESSED_THRESH > 0,              "PRESSED_THRESH <= 0");
-    static_assert(1 == sizeof(effect_state_t),     "sizeof(effect_state_t) != 1, use -fshort-enums");
-    static_assert(1 == sizeof(program_state_t),    "sizeof(program_state_t) != 1, use -fshort-enums");
-    static_assert(1 == sizeof(timer_isr_called_t), "sizeof(timer_isr_called_t) != 1, use -fshort-enums");
+    static_assert(RELEASE_THRESH < UINT8_MAX,                   "RELEASE_THRESH >= UINT8_MAX");
+    static_assert(RELEASE_THRESH > 0,                           "RELEASE_THRESH <= 0");
+    static_assert(RELEASE_THRESH > PRESSED_THRESH,              "RELEASE_THRESH <= PRESSED_THRESH");
+    static_assert(PRESSED_THRESH < UINT8_MAX,                   "PRESSED_THRESH >= UINT8_MAX");
+    static_assert(PRESSED_THRESH > 0,                           "PRESSED_THRESH <= 0");
+    static_assert(1 == sizeof(effect_state_t),                  "sizeof(effect_state_t) != 1, use -fshort-enums");
+    static_assert(1 == sizeof(program_state_t),                 "sizeof(program_state_t) != 1, use -fshort-enums");
+    static_assert(1 == sizeof(timer_isr_called_t),              "sizeof(timer_isr_called_t) != 1, use -fshort-enums");
+    static_assert(1000 == (F_CPU / 8 / (TIMER0_OCR0A_1MS + 1)), "OCR0A/F_CPU mismatch, ISR won't be on 1ms timer");
 
     // disable interrupts (don't want init() to be interrupted); will
     // re-enable at end of function
@@ -328,14 +329,14 @@ static void init(void) {
 
 
 // program entry point
-int main(void) {
-
-    init();
-
-    while (1) {
-
-        // basic sanity checks against outlier events (cosmic rays, extreme
-        // EMI)
+__attribute__((OS_main)) int main(void) {
+ 
+     init();
+ 
+     while (1) {
+ 
+         // basic sanity checks against outlier events (cosmic rays, extreme
+         // EMI)
         // always called, regardless of state
         // force WDT timeout if fail
         if ( (program_state_ > RELEASE_DEBOUNCE_WAIT) ||
