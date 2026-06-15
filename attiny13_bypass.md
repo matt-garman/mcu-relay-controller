@@ -243,247 +243,95 @@ show in the following table:
 
 
 
-== ATTiny13a Program Flow/Pseudocode
+== ATTiny13a Program Flow
+
+=== Functional Description
+
+Define two program states: PRESS_DEBOUNCE_WAIT, RELEASE_DEBOUNCE_WAIT
+Define two effect-circuit states: ENGAGED, BYPASS
+Define constants (see "Asymmetric Debounce Timing" above for rationale)
+    - RELEASE_THRESH = 25
+    - PRESSED_THRESH = 8
+
+The core mechanism is a saturating integrator: a counter that
+increments by one per millisecond when the footswitch reads closed,
+and decrements by one per millisecond when it reads open, bounded
+between 0 and RELEASE_THRESH. A simple debounce timer resets on any
+noise sample; the integrator tolerates noise, requiring only that
+the majority of samples over a window indicate the intended state. A
+spike shorter than PRESSED_THRESH milliseconds cannot reach the
+threshold even if perfectly timed. A real press, even through
+moderate contact bounce or EMI, accumulates reliably because each
+clean low sample contributes persistently.
+
+The state machine has two states. In PRESS_DEBOUNCE_WAIT, the
+integrator climbs while the switch is held and falls while released.
+When it reaches PRESSED_THRESH, the effect is toggled immediately
+and the counter is loaded with RELEASE_THRESH, arming the lockout.
+In RELEASE_DEBOUNCE_WAIT, the integrator can only drain (the switch
+is being released). Only when it reaches zero does the machine
+re-arm for the next press. This lockout prevents switch bounce on
+release from generating a second event, and prevents a held switch
+from re-triggering.
+
+The thresholds are asymmetric by design. PRESSED_THRESH (8ms) is
+kept low for fast response; it is the minimum sustained press
+needed to register, and sets the best-case latency. RELEASE_THRESH
+(25ms) is larger, providing robust lockout against release bounce
+while still allowing fast repeated taps (minimum tap interval =
+PRESSED_THRESH + RELEASE_THRESH = 33ms). See "Asymmetric Debounce
+Timing" for details.
+
+Additionally, the MCU's watchdog feature is used to reset the
+device to the default state (bypass, status LED dark) in the event
+of unexpected error, bit flip, etc.
+
+
+=== State Machine
+
+Saturating integrator (ISR, every 1ms, runs in both states):
+  if footswitch pin low  (switch closed):  if counter < RELEASE_THRESH: counter++
+  if footswitch pin high (switch open):    if counter > 0             : counter--
+
+State machine (main loop, evaluated after each ISR wake):
+
+| Current State        | Condition                   | Effect action           | Next State            |
+| ---                  | ---                         | ---                     | ---                   |
+| PRESS_DEBOUNCE_WAIT  | counter >= PRESSED_THRESH   | Toggle engaged/bypass;  | RELEASE_DEBOUNCE_WAIT |
+|                      |                             | counter = RELEASE_THRESH|                       |
+| PRESS_DEBOUNCE_WAIT  | counter <  PRESSED_THRESH   | (none)                  | PRESS_DEBOUNCE_WAIT   |
+| RELEASE_DEBOUNCE_WAIT| counter == 0                | (none)                  | PRESS_DEBOUNCE_WAIT   |
+| RELEASE_DEBOUNCE_WAIT| counter >  0                | (none)                  | RELEASE_DEBOUNCE_WAIT |
 
 
 
-////////
-// types
-////////
+=== Timing Diagram
 
+                        |<-- PRESSED_THRESH -->|                  |
+                        |        (8ms)         |                  |
+   counter:  0  1  2  3  4  5  6  7 [8→25] 24 23 22 ... 2  1  0
+                                          ↑ toggle fires;         ↑ re-arm
+                                            counter jumps
+                                            to RELEASE_THRESH
 
-// the following enum describes the possible high-level states of
-// the debounce/bypass scheme:
-typedef enum {
-    // 1ms PB0/footswitch pin sampling, waiting for footswitch to be
-    // press-debounced (i.e. footswitch considered open/released in
-    // this state)
-    PRESS_DEBOUNCE_WAIT = 0,
+   PB0:      ‾‾‾‾|___________________________________|‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾
+                   ← switch pressed →                 ← released →
 
-    // 1ms PB0/footswitch pin sampling, footswitch was previously
-    // confirmed debounce-pressed, now waiting for footswitch to be
-    // release-debounced (i.e. footswitch considered closed/pressed
-    // in this state)
-    RELEASE_DEBOUNCE_WAIT,
-} program_state_t;
+   State:    |<-- PRESS_DEBOUNCE_WAIT -->|<-- RELEASE_DEBOUNCE_WAIT -->|<-- PRESS_DEBOUNCE_WAIT
 
+   LED/4053: dark                        lit                                 (ready for next press)
 
-// a flag to keep track of the effect/bypass state
-typedef enum {
-    BYPASS = 0,
-    ENGAGED,
-} effect_state_t;
+  A second diagram showing the EMI/noise rejection case is also worth including — it shows the counter climbing to 7, then
+  noise interrupting and the counter falling back, never reaching 8:
 
-// a flag to "multiplex" the WDT across the timer ISR and main()
-// loop
-typedef enum {
-    TIMER_ISR_CALLED = 0,
-    TIMER_ISR_NOT_CALLED,
-} timer_isr_called_t;
+   counter:  0  1  2  3  4  5  6  7  6  5  4  3  2  1  0  0  0  0 ...
+                                                                 (threshold never reached)
 
+   PB0:      ‾‾‾‾|___________________________|‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾
+                   ← spike / noise burst →
 
-////////////
-// constants
-////////////
+   State:    |<----------------- PRESS_DEBOUNCE_WAIT (no toggle) ----------------->|
 
-// number of HIGH PB0/footswitch pin reads to be considered 
-// release-debounced, i.e. the "lock-out" period
-#define RELEASE_THRESH (25)
+   LED/4053: dark (unchanged)
 
-// number of LOW PB0/footswitch pin reads to be considered
-// press-debounced
-//
-// trying to balance between "responds immediately" and "immune to
-// spurious interrupts": we can't readily distinguish between
-// environmental noise (that we want to filter/ignore as entirely)
-// versus noise from an old/bouncy switch.
-//
-// note also that PRESSED_THRESH is the *minimum* time to confirmed
-// press-debounce: a noisy switch or environmental EMI/RFI could
-// increase the time to confirmed press-debounce
-//
-// the asymmetry between PRESSED_THRESH and RELEASE_THRESH is
-// to bias the debounce time after the actual action (effect
-// engage/bypass) to balance responsiveness with robust switch
-// de-bouncing
-#define PRESSED_THRESH (8)
-
-// max milliseconds before WDT considers device hung/in bad state
-#define WATCHDOG_TIMEOUT_MS (250)
-
-
-///////////////////
-// global variables
-///////////////////
-
-// uint8_t reads/writes are atomic on ATTiny13a
-
-effect_state_t effect_state_; // not touched in ISR, don't need volatile
-program_state_t program_state_; // not touched in ISR, don't need volatile
-volatile timer_isr_called_t timer_isr_called_;
-volatile uint8_t debounce_counter_;
-
-
-////////////
-// functions
-////////////
-
-
-// initialization function: called when MCU is powered-on and/or out
-// of RESET state
-function init():
-
-    // basic compile-time sanity checks on the #define constants
-    - static_assert(RELEASE_THRESH < UINT8_MAX);
-    - static_assert(RELEASE_THRESH > 0);
-    - static_assert(RELEASE_THRESH > PRESSED_THRESH)
-    - static_assert(PRESSED_THRESH < UINT8_MAX);
-    - static_assert(PRESSED_THRESH > 0);
-
-    - disable interrupts
-    - clear WDT flag, reset WDT (init() may be called due to watchdog event)
-    - disable unused features: ADC, analog comparator, etc
-    - set MCU to 1.2MHz clock (lowest practical speed)
-    - set PB0 as input (footswich), enable internal pullup (note:
-      this will be in parallel with external 10k pullup resistor,
-      lowering effective pullup value to approximately 7-8k)
-    - set PB1, PB2 as output (LED, 4053, respectively)
-    - set unused GPIO pins (excluding PB5) to output low (will be not-connected at hardware level)
-    - enable brownout detection (BOD) at 2.7v // NOTE: this is a fuse, not a runtime-call
-
-    - call set_bypass_state() function // note: sets effect_state_ = BYPASS
-
-    // special case: footswitch pressed during power-on: keep in
-    // bypass state, but use timer + interrupt function to wait
-    // for release
-    if PB0 is low { // footswitch is pressed
-        program_state_ = RELEASE_DEBOUNCE_WAIT;
-        debounce_counter_ = RELEASE_THRESH;
-    }
-    else { // standard case
-        program_state_ = PRESS_DEBOUNCE_WAIT;
-        debounce_counter_ = 0;
-    }
-
-    - set 1ms timer interrupt to call timer_interrupt() periodically (wait for swtich to be released)
-    - enable WDT with WATCHDOG_TIMEOUT_MS timeout (system reset mode)
-
-
-set_bypass_state() function:
-    - effect_state_ = BYPASS;
-    - dark status LED
-    - PB2 low (4053 control pins high)
-
-set_engaged_state() function:
-    - effect_state_ = ENGAGED;
-    - light status LED
-    - PB2 high (4053 control pins low)
-
-timer_interrupt() function:
-    // - called from timer interrupt every 1ms
-    // - read PB0/footswitch pin, increment/decrement saturating
-    //   accordingly
-    // - use a saturating integrator to have some tolerance to noisy
-    //   switches/environments
-
-    timer_isr_called_ = TIMER_ISR_CALLED; // used by main() to reset WDC
-
-    // saturating integrator update
-    // PBO0 zero (low) == switch closed
-    // PBO0 one (high) == switch open
-    uint8_t const switch_closed = (0 == digital_read(PB0));
-    if (switch_closed) {
-        if (debounce_counter_ < RELEASE_THRESH) { ++debounce_counter_: }
-    } else { // PB0 is high -> switch open
-        if (debounce_counter_ > 0) { --debounce_counter_; }
-    }
-  
-
-
-// program entry point/main loop
-main() function:
-
-    init();
-
-    while (1) {
-
-        // basic sanity checks against outlier events (cosmic
-        // rays, extreme EMI)
-        // always called, regardless of state
-        // force WDT timeout if fail
-        if ( (program_state_ > RELEASE_DEBOUNCE_WAIT) ||
-             (effect_state_ > ENGAGED) ||
-             (timer_isr_called_ > TIMER_ISR_NOT_CALLED) ||
-             (assert critical pin directions and other state-consistency variables)
-           ) {
-            disable all interrupts
-            while (1) { } // infinite loop to force WDT-reset
-        }
-
-        // - the intent is to make sure both main() is running AND
-        //   the timer ISR is being invoked
-        // - if main() loop fails or timer ISR stops running,
-        //   watchdog timeout will expire
-        if (TIMER_ISR_CALLED == timer_isr_called_) {
-            timer_isr_called_ = TIMER_ISR_NOT_CALLED;
-            wdt_reset(); // reset WDT, aka "pet the dog"
-        }
-
-        switch (program_state_) {
-
-            // NOTE: reading the volatile globals here (e.g.
-            // debounce_counter_) is a potential race condition,
-            // since they are subject to writing in the ISR.
-            // uint8_t operations in AVR are atomic, so we won't
-            // read garbage, but we might read an "old" value in the
-            // precise instant before it is updated.  We could
-            // consider pausing interrupts to read the values into
-            // local copy variables first - but that adds complexity
-            // when the worst-case issue is an extra 1ms delay -
-            // imperceptible and therefore acceptable for this
-            // design
-            
-            // waiting for the footswitch to be press-debounced
-            case PRESS_DEBOUNCE_WAIT: {
-                // check for press-debounced condition
-                if (debounce_counter_ >= PRESSED_THRESH) {
-                    debounce_counter_ = RELEASE_THRESH;
-                    program_state_ = RELEASE_DEBOUNCE_WAIT;
-                    if (BYPASS == effect_state_) { set_engaged_state(); }
-                    else { set_bypass_state(); }
-                }
-            
-                // pause this loop until the 1ms switch poll timer wakes it
-                else {
-                    set cpu to SLEEP_MODE_IDLE 
-                }
-                break;
-            }
-            
-            // waiting for the footswitch to be release-debounced
-            // note: holding the switch closed, or mechanical
-            //       failure (e.g. switch welded shut) causes this
-            //       state to exist indefinitely: this is the design
-            //       intent (software is "helpless", need physical
-            //       human resolution)
-            case RELEASE_DEBOUNCE_WAIT: {
-                if (0 == debounce_counter_) {
-                    program_state_ = PRESS_DEBOUNCE_WAIT;
-                }
-
-                // pause this loop until the 1ms switch poll timer wakes it
-                else {
-                    set cpu to SLEEP_MODE_IDLE 
-                }
-                break;
-            }
-            
-            default: {
-                // invalid state, should be impossible (cosmic rays, massive EMI pulse, etc)
-                disable all interrupts
-                while (1) { } // infinite loop to force WDT-reset
-                break;
-            }
-
-    }
 
