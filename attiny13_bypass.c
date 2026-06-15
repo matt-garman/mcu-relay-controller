@@ -15,6 +15,28 @@
 // PB1 => status indicator LED : output
 // PB2 => 4053 control : output
 //
+//
+// Optimal footswitch wiring for EMI/RFI resiliency:
+// lead 1: GND
+// lead 2:
+//   - TVS diode to ground (cathode=signal, annode=GND)
+//   - series ferrite bead
+//   - series 1k resistor ("a" side to FB, "b" side to "node b")
+//   - 22nF capacitor "node b" to ground (close to MCU GPIO pin)
+//   - 10k pullup resistor "node b" to VCC
+//
+//                                      VCC(5v)
+//                                         |
+//                                       [10k]
+//                                         |
+// FOOTSW_PIN -----+-----[FB]-----[1k]-----+-----GPIO_PIN
+//                 |                       |
+//              [TVS-K]                 [22nF]
+//              [TVS-A]                    |
+//                 |                       |
+//                GND                     GND
+//         
+//
 // designed for avrtools (standard avr-gcc, avr-libc, avrdude toolchain)
 //
 // compile with:
@@ -60,12 +82,12 @@
 
 // possible high-level states of the debounce/bypass scheme
 typedef enum {
-    // 1ms PB0/footswitch pin sampling, waiting for footswitch to be
+    // 1ms footswitch pin sampling, waiting for footswitch to be
     // press-debounced (i.e. footswitch considered open/released in
     // this state)
     PRESS_DEBOUNCE_WAIT = 0,
 
-    // 1ms PB0/footswitch pin sampling, footswitch was previously
+    // 1ms footswitch pin sampling, footswitch was previously
     // confirmed debounce-pressed, now waiting for footswitch to be
     // release-debounced (i.e. footswitch considered closed/pressed
     // in this state)
@@ -161,7 +183,7 @@ static void set_engaged_state(void) {
 
 
 // Timer0 Compare-Match A interrupt; fires every 1ms (see init()).
-// - read PB0/footswitch pin, increment/decrement saturating accordingly
+// - read footswitch pin, increment/decrement saturating accordingly
 // - use a saturating integrator to have some tolerance to noisy
 //   switches/environments
 ISR(TIM0_COMPA_vect) {
@@ -169,12 +191,12 @@ ISR(TIM0_COMPA_vect) {
     timer_isr_called_ = TIMER_ISR_CALLED; // used by main() to reset WDT
 
     // saturating integrator update
-    // PB0 zero (low) == switch closed
-    // PB0 one (high) == switch open
+    // footswitch pin zero (low) == switch closed
+    // footswitch pin one (high) == switch open
     if (0 == digital_read_footswitch_pin()) {
         if (debounce_counter_ < RELEASE_THRESH) { ++debounce_counter_; }
     }
-    else { // PB0 is high -> switch open
+    else { // footswitch pin is high -> switch open
         if (debounce_counter_ > 0) { --debounce_counter_; }
     }
 }
@@ -239,18 +261,18 @@ static void init(void) {
 
 
     // GPIO setup:
-    // PB0 = input  (footswitch)
-    // PB1 = output (status LED)
-    // PB2 = output (CD4053 control)
-    // PB3, PB4 = unused -> drive as outputs low (not connected on PCB)
+    // FOOTSW_PIN        = input  (footswitch)
+    // LED_PIN           = output (status LED)
+    // CD4053_PIN        = output (CD4053 control)
+    // others (PB4, PB5) = unused -> drive as outputs low (not connected on PCB)
     // PB5 = RESET, leave as input (do not touch)
     DDRB = (1 << LED_PIN) | (1 << CD4053_PIN) | (1 << PB3) | (1 << PB4);
 
-    // enable the input pullup for PB0/FOOTSW_PIN
+    // enable the input pullup for FOOTSW_PIN
     // note additional external 10k pullup
-    // PB0 high = switch open/released
-    // PB0 low = switch closed/pressed
-    // this also sets unused pins PB3, PB4 low
+    // FOOTSW_PIN high = switch open/released
+    // FOOTSW_PIN low = switch closed/pressed
+    // this also sets unused pins low
     PORTB = (1 << FOOTSW_PIN);
 
     GIMSK = 0; // pin change interrupts: not needed
