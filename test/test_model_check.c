@@ -249,6 +249,153 @@ static void verify_press_liveness(void) {
     }
 }
 
+//////////////////////////////////////////////////////////////////////////////
+// (I1-I3 under nondeterministic scheduling)
+//
+// The deterministic BFS above assumes exactly one ISR fire followed by
+// exactly one main-loop pass per 1ms tick. In practice the firmware can
+// run main twice in one tick period (once for the toggle/re-arm action,
+// once to reach the next sleep_mode() call) and in theory could miss
+// running main at all (stalled core). This function proves I1-I3 hold
+// under all schedules where main runs 0, 1, or 2 times per ISR tick.
+//
+// The race the proof covers explicitly:
+//   tick N:  ISR fires, debounce_counter_ reaches PRESSED_THRESH.
+//            main pass 1: sees counter >= PRESSED_THRESH -> toggle
+//              (writes counter = RELEASE_THRESH, enters RELEASE_DEBOUNCE_WAIT).
+//            main pass 2: in RELEASE_DEBOUNCE_WAIT, counter = RELEASE_THRESH > 0
+//              -> no action (goes to sleep). I3 holds: no second toggle.
+//
+// I4/I5 liveness requires at least one main pass per tick (forward progress);
+// they are proved above under the deterministic (k=1) schedule.
+//////////////////////////////////////////////////////////////////////////////
+
+// ISR sub-step: update the saturating counter only (no program-state change).
+static uint8_t isr_counter_step(uint8_t counter, int pin_low) {
+    if (pin_low) {
+        if (counter < RELEASE_THRESH) { counter++; }
+    } else {
+        if (counter > 0) { counter--; }
+    }
+    return counter;
+}
+
+// One pass of the main-loop state machine. Modifies *s in place.
+// Returns 1 if a toggle occurred, 0 otherwise.
+static int main_state_step(state_t *s) {
+    if (s->program_state == PRESS_DEBOUNCE_WAIT) {
+        if (s->debounce_counter >= PRESSED_THRESH) {
+            s->debounce_counter = RELEASE_THRESH;
+            s->program_state    = RELEASE_DEBOUNCE_WAIT;
+            s->effect_state     = (s->effect_state == BYPASS) ? ENGAGED : BYPASS;
+            return 1;
+        }
+    } else {
+        if (s->debounce_counter == 0) {
+            s->program_state = PRESS_DEBOUNCE_WAIT;
+        }
+    }
+    return 0;
+}
+
+static void verify_nondeterministic_scheduling(void) {
+    // Collect the same reachable state set as verify_reachable_state_space().
+    uint8_t reachable[NUM_STATES];
+    memset(reachable, 0, sizeof(reachable));
+    state_t wl[NUM_STATES];
+    int wp = 0;
+    int total_reachable = 0;
+
+    state_t roots[2] = {
+        { PRESS_DEBOUNCE_WAIT,   BYPASS, 0 },
+        { RELEASE_DEBOUNCE_WAIT, BYPASS, RELEASE_THRESH },
+    };
+    for (int i = 0; i < 2; ++i) {
+        int idx = state_index(roots[i]);
+        if (!reachable[idx]) {
+            reachable[idx] = 1; wl[wp++] = roots[i]; total_reachable++;
+        }
+    }
+    while (wp > 0) {
+        state_t s = wl[--wp];
+        for (int bit = 0; bit < 2; ++bit) {
+            step_result_t r = step(s, bit);
+            int nidx = state_index(r.next);
+            if (!reachable[nidx]) {
+                reachable[nidx] = 1; wl[wp++] = r.next; total_reachable++;
+            }
+        }
+    }
+
+    // For each reachable state, verify I1-I3 for k = 0, 1, 2 main passes.
+    for (int idx = 0; idx < NUM_STATES; ++idx) {
+        if (!reachable[idx]) continue;
+
+        // Decode the state from its dense index.
+        state_t s;
+        s.debounce_counter = (uint8_t)(idx % COUNTER_VALUES);
+        int tmp = idx / COUNTER_VALUES;
+        s.effect_state     = (uint8_t)(tmp % 2);
+        s.program_state    = (uint8_t)(tmp / 2);
+
+        for (int bit = 0; bit < 2; ++bit) {
+            // Apply the ISR (counter update only).
+            state_t s_isr = s;
+            s_isr.debounce_counter = isr_counter_step(s.debounce_counter, bit);
+
+            CHECK(state_valid(s_isr),
+                  "(I1-nd) ISR produced invalid state from ps=%u es=%u dc=%u in=%d",
+                  s.program_state, s.effect_state, s.debounce_counter, bit);
+
+            for (int k = 0; k <= 2; ++k) {
+                state_t sm = s_isr;
+                int total_toggles = 0;
+
+                for (int m = 0; m < k; ++m) {
+                    uint8_t ps_before = sm.program_state;
+                    uint8_t es_before = sm.effect_state;
+                    int toggled = main_state_step(&sm);
+                    total_toggles += toggled;
+
+                    // (I3-nd) a main pass entering RELEASE_DEBOUNCE_WAIT must
+                    // not toggle. After the ISR + zero prior main passes, if
+                    // the pre-ISR state was already RELEASE_DEBOUNCE_WAIT, the
+                    // post-ISR state is still RELEASE_DEBOUNCE_WAIT.
+                    if (ps_before == RELEASE_DEBOUNCE_WAIT) {
+                        CHECK(!toggled,
+                              "(I3-nd) toggle in pass %d from RELEASE_WAIT: "
+                              "ps=%u es=%u dc=%u in=%d k=%d",
+                              m, s.program_state, s.effect_state,
+                              s.debounce_counter, bit, k);
+                        CHECK(sm.effect_state == es_before,
+                              "(I3-nd) effect_state changed in pass %d from RELEASE_WAIT",
+                              m);
+                    }
+                }
+
+                // (I1-nd) result state must be in valid range.
+                CHECK(state_valid(sm),
+                      "(I1-nd) invalid state after ISR+%d main passes: "
+                      "ps=%u es=%u dc=%u (from ps=%u es=%u dc=%u in=%d)",
+                      k, sm.program_state, sm.effect_state, sm.debounce_counter,
+                      s.program_state, s.effect_state, s.debounce_counter, bit);
+
+                // (I2-nd) at most 1 toggle per super-step. After one toggle
+                // the machine is in RELEASE_DEBOUNCE_WAIT; I3 (proved above)
+                // prevents any further toggle in subsequent main passes.
+                CHECK(total_toggles <= 1,
+                      "(I2-nd) %d toggles in super-step (k=%d main passes): "
+                      "ps=%u es=%u dc=%u in=%d",
+                      total_toggles, k,
+                      s.program_state, s.effect_state, s.debounce_counter, bit);
+            }
+        }
+    }
+
+    printf("  nondeterministic scheduling: %d reachable states, "
+           "k={0,1,2} main-passes per ISR verified\n", total_reachable);
+}
+
 int main(void) {
     printf("exhaustive state-space verification "
            "(PRESSED_THRESH=%d, RELEASE_THRESH=%d):\n",
@@ -258,6 +405,7 @@ int main(void) {
     verify_lockout_requires_full_release();
     verify_release_liveness();
     verify_press_liveness();
+    verify_nondeterministic_scheduling();
 
     printf("state-space model check: %d checks, %d failures\n",
            g_checks, g_failures);

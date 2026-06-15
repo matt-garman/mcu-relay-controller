@@ -33,6 +33,11 @@
 // indices this harness uses below.
 #include "bypass_config_host.h"
 
+// Canonical single-step model (state_t, step_result_t, step()), shared with
+// test_model_check.c and test_symbolic.c.  The lock-step model below delegates
+// to step() so the three test files always exercise the same algorithm.
+#include "model_step.h"
+
 #ifndef FW_PATH
 #  define FW_PATH      "attiny13_bypass.elf"
 #endif
@@ -205,6 +210,19 @@ static void run_ms(unsigned ms) {
 static inline void footsw_drive(int pressed, unsigned ms) {
     footsw_set(pressed);
     run_ms(ms);
+}
+
+// Run for an exact number of AVR clock cycles rather than whole milliseconds.
+// Used to place footswitch edges at arbitrary phase offsets within the 1ms
+// Timer0 tick period (CYCLES_PER_MS = F_CPU_HZ/1000 cycles per tick).
+static void run_cycles(avr_cycle_count_t cycles) {
+    avr_cycle_count_t target = g_avr->cycle + cycles;
+    while (g_avr->cycle < target) {
+        int st = avr_run(g_avr);
+        if (st == cpu_Sleeping) { g_saw_sleep = 1; }
+        if (st == cpu_Crashed)  { g_saw_crash = 1; }
+        if (st == cpu_Done || st == cpu_Crashed) { break; }
+    }
 }
 
 // Run until the CPU first enters IDLE sleep (which only happens in the main
@@ -666,21 +684,17 @@ static void ls_model_init(ls_model_t *m, int pressed_at_power_on) {
 
 // One 1ms tick: ISR saturating integrator, then one main-loop state-machine
 // pass. pin_low != 0 means PB0 reads low == switch pressed.
+//
+// Delegates to step() from model_step.h -- the single canonical copy of the
+// algorithm shared with test_model_check.c and test_symbolic.c.  LS_* enum
+// values are numerically identical to the model_step.h enum values (both are
+// 0/1), so the conversion between ls_model_t and state_t is lossless.
 static void ls_model_step(ls_model_t *m, int pin_low) {
-    if (pin_low) {
-        if (m->debounce_counter < RELEASE_THRESH) { m->debounce_counter++; }
-    } else {
-        if (m->debounce_counter > 0) { m->debounce_counter--; }
-    }
-    if (m->program_state == LS_PRESS_WAIT) {
-        if (m->debounce_counter >= PRESSED_THRESH) {
-            m->debounce_counter = RELEASE_THRESH;
-            m->program_state    = LS_RELEASE_WAIT;
-            m->effect_state     = (m->effect_state == LS_BYPASS) ? LS_ENGAGED : LS_BYPASS;
-        }
-    } else {
-        if (m->debounce_counter == 0) { m->program_state = LS_PRESS_WAIT; }
-    }
+    state_t s = { m->program_state, m->effect_state, m->debounce_counter };
+    step_result_t r = step(s, pin_low);
+    m->program_state    = r.next.program_state;
+    m->effect_state     = r.next.effect_state;
+    m->debounce_counter = r.next.debounce_counter;
 }
 
 // Advance the firmware by EXACTLY one 1ms Timer0 tick and leave it settled:
@@ -1194,6 +1208,107 @@ static void test_power_on_robustness(void) {
         CHECK(g_led_level == 0, "power-on boot %d: return to BYPASS", boot);
     }
 }
+
+
+//////////////////////////////////////////////////////////////////////////////
+// Phase-jitter stimulus
+//
+// All tests above drive footswitch edges on whole-millisecond boundaries.
+// In reality the edge can arrive at any point within the 1ms tick period.
+// These tests scatter the edge timing across the tick window to confirm
+// that partial-tick positioning does not prevent press detection or cause
+// spurious toggles. The firmware is tolerant by design (the ISR samples on
+// the next compare-match after the edge regardless of when within the period
+// it arrives), but the test makes this explicit and measurable.
+//////////////////////////////////////////////////////////////////////////////
+
+// (#6) Verify press detection at five phase offsets across the 1ms tick window.
+// run_cycles() advances by a fractional-tick offset so the footswitch edge
+// does not align to a Timer0 compare-match boundary.
+static void test_clean_press_phase_jitter(void) {
+    static const unsigned offsets[] = { 100u, 300u, 600u, 900u, 1100u };
+    const unsigned n = sizeof(offsets) / sizeof(offsets[0]);
+
+    for (unsigned o = 0; o < n; ++o) {
+        if (sim_reset(0) != 0) { g_failures++; return; }
+        uint32_t before = g_led_changes;
+
+        // Advance by a sub-millisecond offset, then assert the press edge.
+        // The ISR samples the new level on the next compare-match, so at
+        // most 1 extra tick of latency is incurred -- well within PRESSED_THRESH.
+        run_cycles((avr_cycle_count_t)offsets[o]);
+        footsw_set(1);
+        run_ms(20); // hold well past PRESSED_THRESH even with one extra tick of jitter
+
+        CHECK((g_led_changes - before) == 1u,
+              "phase-jitter press (offset=%u/%lu cycles): expected 1 toggle, got %u",
+              offsets[o], (unsigned long)CYCLES_PER_MS, g_led_changes - before);
+        CHECK(g_led_level == 1,
+              "phase-jitter press (offset=%u cycles): should be engaged", offsets[o]);
+
+        footsw_set(0); run_ms(50);
+        footsw_set(1); run_ms(20); footsw_set(0); run_ms(50);
+        CHECK(g_led_level == 0,
+              "phase-jitter round-trip (offset=%u cycles): should return to BYPASS",
+              offsets[o]);
+    }
+}
+
+
+//////////////////////////////////////////////////////////////////////////////
+// Stack high-water mark
+//
+// Fill SRAM with a 0xAA canary pattern before the firmware starts, then run
+// a representative workload. Scan from the top of SRAM downward to find the
+// deepest stack address. Asserts adequate margin between the stack bottom and
+// the BSS region.
+//
+// Limitation: a register or local variable that coincidentally holds 0xAA
+// during a stack frame produces a false-clean canary byte, making the result
+// a conservative (optimistic) estimate. For a small MCU with ~4 bytes of BSS
+// and short ISR frames, collisions are extremely rare in practice.
+//////////////////////////////////////////////////////////////////////////////
+
+static void test_stack_high_water_mark(void) {
+    if (sim_reset_raw(0, 0) != 0) { g_failures++; return; }
+
+    const uint32_t sram_bot = 0x60u;         // first SRAM byte on AVR (data space)
+    const uint32_t sram_top = g_avr->ramend; // last  SRAM byte (0x9F t13a, 0x25F t85)
+
+    // Paint the entire SRAM with 0xAA before any firmware code runs.
+    for (uint32_t a = sram_bot; a <= sram_top; ++a) {
+        g_avr->data[a] = 0xAAu;
+    }
+
+    // Representative workload: init(), two press/release cycles (covers the ISR
+    // frame, toggle path, lockout drain, and re-arm -- the deepest call paths).
+    run_ms(5);
+    footsw_set(1); run_ms(20); footsw_set(0); run_ms(40);
+    footsw_set(1); run_ms(20); footsw_set(0); run_ms(40);
+
+    // Scan downward from ramend; the first 0xAA byte we encounter is the
+    // deepest address the stack never reached. Everything above (toward ramend)
+    // was written by stack pushes.
+    uint32_t hwm = sram_top;
+    while (hwm >= sram_bot && g_avr->data[hwm] != 0xAAu) {
+        hwm--;
+    }
+    uint32_t deepest_sp   = hwm + 1u;
+    uint32_t stack_used   = sram_top - deepest_sp + 1u;
+    uint32_t sram_size    = sram_top - sram_bot + 1u;
+    uint32_t margin_bytes = (deepest_sp > sram_bot) ? (deepest_sp - sram_bot) : 0u;
+
+    printf("  stack HWM: deepest SP=0x%03X, used=%u B, margin=%u B "
+           "(SRAM 0x%03X-0x%03X, %u B total)\n",
+           deepest_sp, stack_used, margin_bytes,
+           sram_bot, sram_top, sram_size);
+
+    CHECK(margin_bytes >= 8u,
+          "stack leaves only %u bytes between deepest SP (0x%03X) and BSS; "
+          "expected >=8 bytes margin",
+          margin_bytes, deepest_sp);
+}
+
 #endif // !TRACE
 
 //////////////////////////////////////////////////////////////////////////////
@@ -1285,6 +1400,8 @@ int main(int argc, char **argv) {
     test_oscillator_drift_tolerance();
     test_asymmetric_emi_bursts();
     test_power_on_robustness();
+    test_clean_press_phase_jitter();
+    test_stack_high_water_mark();
 
     if (g_avr) { avr_terminate(g_avr); free(g_avr); }
 

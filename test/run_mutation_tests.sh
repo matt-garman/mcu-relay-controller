@@ -40,6 +40,18 @@ MUTATIONS=(
 "attiny13_bypass.c	s@cd4053_pin_set_high@cd4053_pin_set_low@	test-sim	engaged routes CD4053 the wrong way (PB2 stuck low)"
 "bypass_config.h	s@#define PRESSED_THRESH (8)@#define PRESSED_THRESH (4)@	test-sim	press threshold shortened 8->4 (timing/noise-count regression)"
 "bypass_config.h	s@#define RELEASE_THRESH (25)@#define RELEASE_THRESH (15)@	test-sim	release lock-out shortened 25->15 (noise-count regression)"
+# --- ISR bounds guards ---------------------------------------------------------
+"attiny13_bypass.c	s@if (debounce_counter_ < RELEASE_THRESH) { ++debounce_counter_; }@++debounce_counter_;@	test-sim	ISR increment: remove saturation guard (counter wraps from 255->0 after 256 sustained ticks)"
+"attiny13_bypass.c	s@if (debounce_counter_ > 0) { --debounce_counter_; }@--debounce_counter_;@	test-sim	ISR decrement: remove underflow guard (counter wraps 0->255 on release; lock-step catches divergence)"
+# --- lockout mechanism ---------------------------------------------------------
+"attiny13_bypass.c	s@debounce_counter_ = RELEASE_THRESH;@debounce_counter_ = 0;@g	test-sim	toggle lockout: counter reset to 0 instead of RELEASE_THRESH (immediate re-arm, no hold lockout)"
+"attiny13_bypass.c	s@program_state_ = RELEASE_DEBOUNCE_WAIT;@program_state_ = PRESS_DEBOUNCE_WAIT;@g	test-sim	toggle lockout: stays in PRESS_DEBOUNCE_WAIT after toggle (counter=25 >= 8 -> immediate re-toggle cascade)"
+# --- watchdog handshake --------------------------------------------------------
+"attiny13_bypass.c	s@wdt_reset(); // \"pet the dog\"@(void)0; /* MUTANT: no WDT reset */@	test-sim	WDT pet removed from main loop: watchdog fires within ~250ms; test_watchdog_not_tripped_normally catches it"
+"attiny13_bypass.c	s@timer_isr_called_ = TIMER_ISR_CALLED;@timer_isr_called_ = TIMER_ISR_NOT_CALLED;@	test-sim	WDT handshake: ISR clears its own flag -> main never sees CALLED -> WDT fires within timeout"
+# --- output logic --------------------------------------------------------------
+"attiny13_bypass.c	s@if ( (program_state_ > RELEASE_DEBOUNCE_WAIT)@if ( 0 \&\& (program_state_ > RELEASE_DEBOUNCE_WAIT)@	test-sim	sanity guard disabled: DDRB/state corruption goes undetected; corruption test catches it"
+"attiny13_bypass.c	s@else { set_bypass_state(); }@else { set_engaged_state(); }@	test-sim	toggle: always sets ENGAGED (never returns to BYPASS); round-trip and lock-step tests catch it"
 )
 
 # Files copied into each sandbox (sources + harness + Makefile).

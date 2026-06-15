@@ -461,7 +461,7 @@ test-sim: test/test_sim
 	./test/test_sim
 
 # Build rule for the ATtiny13a sim harness (links against the t13 firmware ELF).
-test/test_sim: test/test_sim.c test/bypass_config_host.h bypass_config.h $(TARGET).elf
+test/test_sim: test/test_sim.c test/model_step.h test/bypass_config_host.h bypass_config.h $(TARGET).elf
 	$(HOSTCC) $(SIM_CFLAGS) $(SIM_DEFS) -Itest test/test_sim.c -o $@ $(SIM_LIBS)
 
 # simavr integration tests (ATtiny85): same harness/asserts, different MCU and
@@ -471,7 +471,7 @@ test-sim-t85: test/test_sim_t85
 
 # Build rule for the ATtiny85 sim harness (links against the t85 firmware ELF;
 # -DTARGET_T85 selects the WDT-reset-aware test paths).
-test/test_sim_t85: test/test_sim.c test/bypass_config_host.h bypass_config.h $(TARGET85).elf
+test/test_sim_t85: test/test_sim.c test/model_step.h test/bypass_config_host.h bypass_config.h $(TARGET85).elf
 	$(HOSTCC) $(SIM_CFLAGS) $(SIM_DEFS) -Itest \
 		-DFW_PATH=\"$(TARGET85).elf\" \
 		-DMCU_NAME=\"attiny85\" \
@@ -502,7 +502,7 @@ trace: test/test_trace
 	@echo "View with: gtkwave bypass_trace.vcd"
 
 # Build rule for the TRACE variant of the sim harness (-DTRACE emits the VCD).
-test/test_trace: test/test_sim.c $(TARGET).elf
+test/test_trace: test/test_sim.c test/model_step.h $(TARGET).elf
 	$(HOSTCC) $(SIM_CFLAGS) $(SIM_DEFS) -Itest -DTRACE test/test_sim.c -o $@ $(SIM_LIBS)
 
 # ============================================================================

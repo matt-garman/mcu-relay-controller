@@ -1,0 +1,82 @@
+= Toolchain Reference
+
+This file documents the exact toolchain versions used to build and test the
+attiny13_bypass firmware.  It serves the same purpose as a Python
+requirements.txt: a human-readable record of what the project was validated
+against, so a new developer (or CI system) can reproduce the exact environment.
+
+The Makefile writes a hash of the compiler version strings into
+test/.toolchain.sig at build time; any change to the installed toolchain
+triggers a full firmware rebuild.  If you update a tool, re-run `make clean &&
+make test` and commit the new signature.
+
+== Development platform
+
+  OS:           Linux 6.12.33 (TrueNAS production kernel), x86_64
+  Distribution: Ubuntu 24.04 (Noble) base packages
+
+== AVR toolchain (cross-compile to MCU target)
+
+  avr-gcc:      7.3.0  (package: gcc-avr)
+  avr-libc:     2.0.0+Atmel3.7.0-1  (package: avr-libc)
+  avrdude:      not installed on build host; flash via dedicated programming
+                host/rig.  Recommended: avrdude 6.3 or 7.x with USBasp or
+                similar ISP programmer.
+
+  Minimum avr-gcc version: 4.9 (for _Static_assert / C11 support with -std=gnu11)
+  Recommended: 7.x or later (best -fshort-enums / LTO support for tiny parts)
+
+== Simulator (integration tests)
+
+  simavr:       1.6+dfsg-3build2  (Ubuntu package: simavr, libsimavr-dev)
+  install:      apt install simavr libsimavr-dev
+  note:         ATtiny13 WDT-reset emulation is NOT available in simavr 1.6;
+                the ATtiny85 path is used for WDT tests.  See test/test_sim.c
+                for the #ifdef TARGET_T85 stubs.
+
+== Host toolchain (native test harnesses)
+
+  gcc:          13.3.0  (Ubuntu 13.3.0-6ubuntu2~24.04.1)
+  clang:        18.1.3  (Ubuntu LLVM 18.1.3, package: clang-18)
+
+  Either compiler works for all test/* host binaries.  The Makefile uses gcc
+  by default (HOSTCC := gcc); set HOSTCC=clang to override.
+
+== Static analysis
+
+  clang-tidy:   18.1.3  (from LLVM 18 packages)
+  cppcheck:     2.13.0  (Ubuntu package: cppcheck)
+  clang --analyze: provided by clang 18 (no separate install)
+
+  All three are wired into `make analyze`.  Warnings are treated as errors.
+
+== Optional (symbolic execution)
+
+  KLEE:         not installed; test/test_symbolic.c compiles and runs under
+                the host gcc as an exhaustive enumerator when USE_KLEE is not
+                defined.  To use with KLEE, build KLEE from source against
+                LLVM 18 and compile test_symbolic.c with:
+                  clang -emit-llvm -DUSE_KLEE ... -o test_symbolic.bc
+                  klee test_symbolic.bc
+
+== Reproducing the environment (Ubuntu 24.04)
+
+  sudo apt install gcc-avr avr-libc simavr libsimavr-dev \
+                   gcc clang clang-tidy cppcheck
+
+  Optional analysis tools:
+  sudo apt install valgrind lcov gcovr
+
+== Version pinning strategy
+
+  Exact versions above were the latest Ubuntu 24.04 LTS packages at the time
+  of initial commit.  Upgrading minor versions of avr-gcc or avr-libc is
+  generally safe.  If avr-gcc major version changes, re-verify with
+  `make test` and inspect the generated assembly for the ISR to confirm
+  the saturating integrator still compiles to the expected atomic read-
+  modify-write pattern (no multi-byte intermediates).
+
+  For CI reproducibility, prefer Ubuntu 24.04 LTS Docker image:
+    docker run --rm -v $(pwd):/src ubuntu:24.04 bash -c \
+      "apt-get install -y gcc-avr avr-libc simavr libsimavr-dev gcc && \
+       cd /src/nextgen && make test"
