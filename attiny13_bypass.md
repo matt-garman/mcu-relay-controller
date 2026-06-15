@@ -6,7 +6,7 @@
 
     - Readily available in SMD and through-hole
     - Low cost
-    - avrtools - mature, cross-platform, fully-featured
+    - avr tools - mature, cross-platform, fully-featured
       free/open-source tooling
     - Low-ish power by use of CPU IDLE mode for typically <1mA
       current draw
@@ -17,9 +17,10 @@
 == High-Level Functional Description
 
 This ATTiny13a will be used with a physical human-operated
-footswitch, and an electric signal switching IC (CD4053 or
-TMUX4053). These components comprise a sub-circuit of a larger
-effect circuit, typically for use in a pedal.
+footswitch (momentary, normally open), and an electric signal
+switching IC (CD4053 or TMUX4053). These components comprise a
+sub-circuit of a larger effect circuit, typically for use in a
+pedal.
 
 The user uses the footswitch to toggle between two states, "engaged"
 and "bypass".  In the "engaged" state, the audio signal is routed
@@ -27,15 +28,15 @@ through some kind of effect; in "bypass", the effect is routed
 straight through (as though the user removed the device entirely
 from the signal chain).
 
-This switching sub-circuit also has a status LED; when the effect is
-"engaged", the status LED should be lit, and when the effect is in
-"bypass", the status LED should be dark.
+This switching sub-circuit also has a status indicator LED; when the
+effect is "engaged", the status LED should be lit, and when the
+effect is in "bypass", the status LED should be dark.
 
 Therefore, the ATTiny13a needs to:
     - maintain state (engage/bypass)
     - light or dark the status LED
     - respond to footswitch presses (including debounce)
-    - control the actual signal switching mechanism
+    - control the actual signal switching mechanism (4053)
 
 At power-on, the circuit should default to the bypass state with the
 LED dark (no state persistence between power cycles).
@@ -46,7 +47,7 @@ on press (not on release).
 This sub-circuit should be as robust as possible and assume likely
 adverse conditions:
     - high temperature (e.g. noon-time Death Valley performance)
-    - EMI/RFI (e.g. cell phones, wifi, flourescent lighting, AC motors,
+    - EMI/RFI (e.g. cell phones, wifi, fluorescent lighting, AC motors,
       proximity to radio station, etc)
 
 == Reliability Goals
@@ -87,9 +88,9 @@ adverse conditions:
     - A mechanically stuck switch results in permanent active-mode
       power draw and no recovery; this is by design
     - "Fast" repeated taps: "fast" generally means at least
-      approximately 30 milliseconds between presses under ideal
-      conditions; time between recognized repeated taps will be
-      longer in noisy environments, or when using old switches, etc
+      33 milliseconds between presses under ideal conditions; time
+      between recognized repeated taps will be longer in noisy
+      environments, or when using old switches, etc
     - The design attempts to be EMI/RFI resilient; however, an
       old/low-quality/fouled-contact footswitch might be very
       "bouncy"; the design can't distinguish EMI/RFI noise from
@@ -101,6 +102,37 @@ adverse conditions:
         - Footswitch leads are tightly twisted
         - PCB and footswitch wiring housed in a grounded metal
           enclosure
+
+
+== Asymmetric Debounce Timing
+
+The design deliberately uses asymmetric timing for debouncing the
+switch press and release.  The goal is to use a shorter time window
+for press-debounce, so the state change feels instantaneous to the
+user.  The release-debounce, or lock-out period, is longer so as to
+"hide" additional debounce latency from the user.
+
+    - PRESSED_THRESH upper bound (latency constraint):
+      At worst-case clock (+10% RC drift), one tick = 1.111ms. For
+      <10ms press latency: PRESSED_THRESH = floor(10 / 1.111) = 9.
+      Current value 8 has a 1-tick margin.  Note that changing to 10
+      10 would violate the "<10ms press latency" goal.  Also note
+      that a highly bouncy switch, or significant EMI/RFI *will*
+      cause the press latency to exceed 10ms.
+
+    - PRESSED_THRESH lower bound (EMI rejection):
+      The RC filter (1k series + 22nF to ground + ~7.5k pullup
+      effective) has a time constant 22nF × (1k || 7.5k) =
+      ~18µs. EMI spikes shorter than a few RC time constants are
+      attenuated below the Schmitt threshold. The filter provides
+      hardware-level rejection of spikes shorter than ~100µs. The
+      1ms timer tick plus PRESSED_THRESH=8 means a spurious low must
+      persist for 8ms (contiguous or accumulating) to register
+      roughly 80× the hardware filter's corner.
+
+    - RELEASE_THRESH (minimum lockout before next press):
+      The minimum tap interval is PRESSED_THRESH + RELEASE_THRESH =
+      33ms at nominal clock.
 
 
 == GPIO pin assignment
@@ -115,16 +147,42 @@ adverse conditions:
     - PB1, PB2 will have 100k pulldown resistors
 
 
-Note: the GPIO pin tied to the footswitch (normally high) will have some
-hardware-level EMI/RFI protections and also aid with debounce:
-    - 10k pullup resistor to ATTiny13a voltage supply (note: will be
-      combined with internal AVR pullup resistor, so net is roughly
-      7-8k)
-    - 1k series resistor
-    - 22nF MLCC capacitor to ground for EMI/RFI supression
+== Footswitch-GPIO wiring
+
+The GPIO pin tied to the footswitch (normally high) will have some
+hardware-level EMI/RFI protections and also aid with debounce.
+Wiring is as follows:
+
+Footswitch lead 1: GND
+Footswitch lead 2 ("FOOTSW_PIN"):
+    - TVS diode to ground (cathode=signal, anode=GND)
+    - series ferrite bead
+    - series 1k resistor ("a" side to FB, "b" side to "node b")
+    - 22nF capacitor "node b" to ground (close to MCU GPIO pin)
+    - 10k pullup resistor "node b" to VCC
+
+Wiring diagram:
+```
+                                     VCC(5v)
+                                        |
+                                      [10k]
+                                        |
+FOOTSW_PIN -----+-----[FB]-----[1k]-----+-----GPIO_PIN
+                |                       |
+             [TVS-K]                 [22nF]
+             [TVS-A]                    |
+                |                       |
+               GND                     GND
+```
+
+Note this wiring is overbuilt for the intended purpose.  All parts
+are recommended for best EMI/RFI resiliency, but for non-adverse
+environmental conditions and/or prioritizing reduced BOM cost and
+PCB space, the TVS diode and ferrite bead can be omitted.
 
 
-CD4053 Note:
+== CD4053 Notes
+
     - the newer TMUX4053 switches can be controlled with logic
       levels lower than the voltage supply (e.g. CMOS, TTL)
     - the older CD4053 needs logic "true" to be the same level as
@@ -151,7 +209,7 @@ CD4053 Note:
 
 
 == Toolchain
-    - avrtools (standard avr-gcc, avr-libc, avrdude toolchain)
+    - avr tools: avr-gcc, avr-libc, avrdude toolchain
     - no Arduino
 
 == Compilation Flags
@@ -165,7 +223,27 @@ CD4053 Note:
     -Wextra
 
 
-== ATTiny13a Program Flow/Psuedocode
+== Testing and Validation
+
+This project features and extensive testing, validation and
+simulation suite.  Specific tests verify specific requirements, as
+show in the following table:
+
+| Requirement                          | Test(s) that verify it                         │
+|---                                   | ---
+| One press → exactly one state change | model_check I2/I5; test_single_clean_press; test_lockstep_cosim
+| Release → zero state changes         | model_check I3; test_single_clean_press; test_two_presses_round_trip
+| Switch bounce → no extra changes     | test_bouncy_press; test_fuzz_extreme_bounce; test_extreme_bounce (sim)
+| Hold seconds → no repeat             | test_long_hold; model_check I5 (liveness proof shows exactly 1)
+| EMI/RFI resilience                   | test_sustained_noise; test_asymmetric_emi_bursts; test_random_noise
+| Fast taps recognized                 | test_fast_repeated_taps; caveats section
+| Latency <10ms                        | test_clean_press_latency; test_oscillator_drift_tolerance
+| Deterministic/analyzable             | model_check exhaustive BFS; test_symbolic exhaustive enumeration
+| Power-on → BYPASS                    | test_power_on_default; test_power_on_robustness
+
+
+
+== ATTiny13a Program Flow/Pseudocode
 
 
 
