@@ -1,8 +1,8 @@
 
-= Electric Guitar Effect Engage/Bypass Scheme using ATtiny13a
+# Electric Guitar Effect Engage/Bypass Scheme using ATtiny13a
 
 
-== Why ATTiny13a
+## Why ATTiny13a
 
     - Readily available in SMD and through-hole
     - Low cost
@@ -14,7 +14,7 @@
     - Schmitt trigger GPIO pins
 
 
-== High-Level Functional Description
+## High-Level Functional Description
 
 This ATTiny13a will be used with a physical human-operated
 footswitch (momentary, normally open), and an electric signal
@@ -50,7 +50,7 @@ adverse conditions:
     - EMI/RFI (e.g. cell phones, wifi, fluorescent lighting, AC motors,
       proximity to radio station, etc)
 
-== Reliability Goals
+## Reliability Goals
     - Reference-quality
     - World-class touring musician grade
     - Suitable for use by established market-leading manufacturers
@@ -71,7 +71,7 @@ adverse conditions:
     - Behavior must be deterministic and analyzable
 
 
-== Caveats and Limitations
+## Caveats and Limitations
     - The footswitch polling loop is based on a 1ms timer, driven by
       the ATTiny13a's builtin oscillator; this oscillator can drift
       +/- 10% (e.g. voltage fluctuations, temperature), which means
@@ -104,7 +104,7 @@ adverse conditions:
           enclosure
 
 
-== Asymmetric Debounce Timing
+## Asymmetric Debounce Timing
 
 The design deliberately uses asymmetric timing for debouncing the
 switch press and release.  The goal is to use a shorter time window
@@ -135,7 +135,7 @@ user.  The release-debounce, or lock-out period, is longer so as to
       33ms at nominal clock.
 
 
-== GPIO pin assignment
+## GPIO pin assignment
 
     - NOTE: PB5 serves multiple roles (e.g. physical RESET pin) in
       ATTiny13a; deliberately not used in this design
@@ -147,7 +147,7 @@ user.  The release-debounce, or lock-out period, is longer so as to
     - PB1, PB2 will have 100k pulldown resistors
 
 
-== Footswitch-GPIO wiring
+## Footswitch-GPIO wiring
 
 The GPIO pin tied to the footswitch (normally high) will have some
 hardware-level EMI/RFI protections and also aid with debounce.
@@ -181,7 +181,7 @@ environmental conditions and/or prioritizing reduced BOM cost and
 PCB space, the TVS diode and ferrite bead can be omitted.
 
 
-== CD4053 Notes
+## CD4053 Notes
 
     - the newer TMUX4053 switches can be controlled with logic
       levels lower than the voltage supply (e.g. CMOS, TTL)
@@ -208,11 +208,11 @@ PCB space, the TVS diode and ferrite bead can be omitted.
       control
 
 
-== Toolchain
+## Toolchain
     - avr tools: avr-gcc, avr-libc, avrdude toolchain
     - no Arduino
 
-== Compilation Flags
+## Compilation Flags
     -fshort-enums // so that typedef'ed enums below are 8-bit ints
     -funsigned-char
     -ffunction-sections
@@ -223,7 +223,7 @@ PCB space, the TVS diode and ferrite bead can be omitted.
     -Wextra
 
 
-== Testing and Validation
+## Testing and Validation
 
 This project features and extensive testing, validation and
 simulation suite.  Specific tests verify specific requirements, as
@@ -243,9 +243,9 @@ show in the following table:
 
 
 
-== ATTiny13a Program Flow
+## ATTiny13a Program Flow
 
-=== Functional Description
+### Functional Description
 
 Define two program states: PRESS_DEBOUNCE_WAIT, RELEASE_DEBOUNCE_WAIT
 Define two effect-circuit states: ENGAGED, BYPASS
@@ -287,7 +287,7 @@ device to the default state (bypass, status LED dark) in the event
 of unexpected error, bit flip, etc.
 
 
-=== State Machine
+### State Machine
 
 Saturating integrator (ISR, every 1ms, runs in both states):
   if footswitch pin low  (switch closed):  if counter < RELEASE_THRESH: counter++
@@ -305,7 +305,7 @@ State machine (main loop, evaluated after each ISR wake):
 
 
 
-=== Timing Diagram
+### Timing Diagram
 
 Diagram 1: Typical Case
 
