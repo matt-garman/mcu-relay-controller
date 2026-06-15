@@ -28,7 +28,9 @@
 #include <stdint.h>
 #include <stdio.h>
 
-#include "bypass_config_host.h" // RELEASE_THRESH, PRESSED_THRESH (firmware truth)
+// state_t, step_result_t, step(), enum constants, and firmware thresholds.
+// Single source of truth shared with test_model_check.c.
+#include "model_step.h"
 
 #ifdef USE_KLEE
 #include <klee/klee.h>
@@ -37,48 +39,6 @@
 #else
 #include <assert.h>
 #endif
-
-enum { PRESS_DEBOUNCE_WAIT = 0, RELEASE_DEBOUNCE_WAIT = 1 };
-enum { BYPASS = 0, ENGAGED = 1 };
-
-typedef struct {
-    uint8_t program_state;
-    uint8_t effect_state;
-    uint8_t debounce_counter;
-} state_t;
-
-typedef struct {
-    state_t next;
-    int     toggled;
-} step_result_t;
-
-// Identical to attiny13_bypass.c (ISR integrator + one main-loop pass).
-static step_result_t step(state_t s, int pin_low) {
-    step_result_t r;
-    r.toggled = 0;
-
-    if (pin_low) {
-        if (s.debounce_counter < RELEASE_THRESH) { s.debounce_counter++; }
-    } else {
-        if (s.debounce_counter > 0) { s.debounce_counter--; }
-    }
-
-    if (s.program_state == PRESS_DEBOUNCE_WAIT) {
-        if (s.debounce_counter >= PRESSED_THRESH) {
-            s.debounce_counter = RELEASE_THRESH;
-            s.program_state    = RELEASE_DEBOUNCE_WAIT;
-            s.effect_state     = (s.effect_state == BYPASS) ? ENGAGED : BYPASS;
-            r.toggled = 1;
-        }
-    } else { // RELEASE_DEBOUNCE_WAIT
-        if (s.debounce_counter == 0) {
-            s.program_state = PRESS_DEBOUNCE_WAIT;
-        }
-    }
-
-    r.next = s;
-    return r;
-}
 
 //////////////////////////////////////////////////////////////////////////////
 // The single-step property bundle. Holds for ALL valid inputs, reachable or

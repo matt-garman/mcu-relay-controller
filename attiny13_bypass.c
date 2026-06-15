@@ -55,13 +55,15 @@
 // CKSEL     | 0b0010 (Internal 9.6MHz)                  | Required for 1.2MHz operation with CKDIV8
 // SUT       | 0b00 (14 CK + 4ms) or 0b10 (14 CK + 64ms) | 64ms recommended for stable power-on with LDO regulator ramp-up
 // CKDIV8    | 0 (enabled, i.e., divide by 8)            | Yields 1.2MHz system clock
+// WDTON     | 0 (enabled, i.e., WDT always on)          | Silicon-level guarantee: WDT cannot be disabled by software;
+//           |                                           | resilient against stray WDTCR writes (EMI, cosmic rays)
 // BODEN     | 0 (enabled)                               | Required for brown-out protection
 // BODLEVEL  | 0b10 (2.7V)                               | Matches your design spec
 // RSTDISBL  | 1 (disabled, i.e., PB5 remains RESET)     | Critical: clearing this disables ISP programming
 // SELFPRGEN | 1 (disabled)                              | No self-programming needed
 // DWEN      | 1 (disabled)                              | debugWIRE not needed in production; consumes PB5
 //
-// avrdude fuse targets: -U lfuse:w:0x6a:m -U hfuse:w:0xfb:m
+// avrdude fuse targets: -U lfuse:w:0x4a:m -U hfuse:w:0xfb:m
 // 
 // Note: useful fuse tool here: https://www.engbedded.com/fusecalc/
 //
@@ -213,6 +215,7 @@ static void init(void) {
     static_assert(PRESSED_THRESH < UINT8_MAX,      "PRESSED_THRESH >= UINT8_MAX");
     static_assert(PRESSED_THRESH > 0,              "PRESSED_THRESH <= 0");
     static_assert(1 == sizeof(effect_state_t),     "sizeof(effect_state_t) != 1, use -fshort-enums");
+    static_assert(1 == sizeof(program_state_t),    "sizeof(program_state_t) != 1, use -fshort-enums");
     static_assert(1 == sizeof(timer_isr_called_t), "sizeof(timer_isr_called_t) != 1, use -fshort-enums");
 
     // disable interrupts (don't want init() to be interrupted); will

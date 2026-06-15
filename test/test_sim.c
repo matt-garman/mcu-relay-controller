@@ -1060,7 +1060,7 @@ static void test_fault_inject_timer_isr_flag(void) {
         avr_core_watch_write(g_avr, g_addr_timer_isr, 0x55);
         run_ms(1);
         if (g_led_level == 0 && i > 5) {
-            // already reset; stop poking
+            break; // already reset; stop poking
         }
     }
     // > WDT timeout window has elapsed within the loop above; confirm BYPASS.
@@ -1105,24 +1105,58 @@ static void run_fault_injection_suite(void) {
     test_fault_inject_cd4053_ddr();
 }
 
-// Oscillator drift tolerance: run the round-trip test at ±10% CPU frequency
-// to verify debounce timing holds across the clock tolerance range.
+// Oscillator drift tolerance: verify the <10ms press-latency goal holds across
+// the ±10% RC oscillator tolerance documented in the design spec.
+//
+// The simavr firmware is cycle-accurate, so drift cannot be modeled by changing
+// g_avr->frequency (run_ms uses compile-time F_CPU_HZ and the timer fires on
+// cycle counts regardless). Instead we measure cycle latency to first toggle,
+// convert to ticks (cycles_per_tick = F_CPU_HZ/1000 is exact for both MCUs),
+// then interpret those ticks at the drifted real-world frequency. A +10% clock
+// means each tick completes in 1ms/1.1 ≈ 0.909ms of real time; the design goal
+// of <10ms must hold for the worst case (-10%: 1 tick = 1.111ms, so
+// PRESSED_THRESH=8 ticks × 1.111ms = 8.89ms).
 static void test_oscillator_drift_tolerance(void) {
-    static const uint32_t freqs[] = {
-        (uint32_t)(F_CPU_HZ * 0.9),
-        (uint32_t)(F_CPU_HZ * 1.1),
-    };
+    static const double drift_factors[] = { 0.9, 1.1 };
+    // Exact cycles per 1ms tick for both MCUs (f/prescaler/(OCR0A+1) = 1000 Hz).
+    const double cycles_per_tick = (double)(F_CPU_HZ / 1000UL);
 
     for (int f = 0; f < 2; ++f) {
         if (sim_reset(0) != 0) { g_failures++; return; }
-        g_avr->frequency = freqs[f];
 
-        CHECK(g_led_level == 0, "drift %d: power-on BYPASS", f);
+        CHECK(g_led_level == 0, "drift %.1fx: power-on BYPASS", drift_factors[f]);
 
-        footsw_set(1); run_ms(50); footsw_set(0); run_ms(50);
-        CHECK(g_led_level == 1, "drift %d: press engages", f);
-        footsw_set(1); run_ms(50); footsw_set(0); run_ms(50);
-        CHECK(g_led_level == 0, "drift %d: return to BYPASS", f);
+        uint32_t before = g_led_changes;
+        footsw_set(1);
+        avr_cycle_count_t press_cycle = g_avr->cycle;
+        // Hold for 20ms (16+ ticks) -- well past PRESSED_THRESH even at worst drift.
+        run_ms(20);
+
+        CHECK((g_led_changes - before) == 1,
+              "drift %.1fx: press should toggle exactly once, got %u",
+              drift_factors[f], g_led_changes - before);
+
+        if ((g_led_changes - before) == 1) {
+            // Convert cycle latency to real wall-clock ms at the drifted frequency.
+            // At drift d: 1 tick = (cycles_per_tick / (F_CPU_HZ * d)) seconds
+            //           = 1ms / d real time.
+            double ticks = (double)(g_last_led_change_cycle - press_cycle) / cycles_per_tick;
+            double latency_ms = ticks / drift_factors[f];
+            printf("  drift %.1fx: latency %.2f ms "
+                   "(PRESSED_THRESH=%d ticks, goal <10ms)\n",
+                   drift_factors[f], latency_ms, PRESSED_THRESH);
+            CHECK(latency_ms <= 10.0,
+                  "drift %.1fx: latency %.2f ms exceeds the 10ms design goal",
+                  drift_factors[f], latency_ms);
+        }
+
+        footsw_set(0); run_ms(50);
+        before = g_led_changes;
+        footsw_set(1); run_ms(20); footsw_set(0); run_ms(50);
+        CHECK((g_led_changes - before) == 1,
+              "drift %.1fx: second press should toggle once, got %u",
+              drift_factors[f], g_led_changes - before);
+        CHECK(g_led_level == 0, "drift %.1fx: round trip returns to BYPASS", drift_factors[f]);
     }
 }
 

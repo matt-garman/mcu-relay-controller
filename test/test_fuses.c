@@ -86,7 +86,7 @@ static void verify_t13(void) {
 
     // --- LOW byte ---
     CHECK(field(lo, 7, 1) == 0, "t13 SPIEN must be enabled (0) to keep ISP; lfuse bit7=%u", field(lo,7,1));
-    CHECK(field(lo, 5, 1) == 1, "t13 WDTON should be 1 (WDT under software control, not forced-on); lfuse bit5=%u", field(lo,5,1));
+    CHECK(field(lo, 5, 1) == 0, "t13 WDTON must be 0 (WDT forced always-on, cannot be disabled by software); lfuse bit5=%u", field(lo,5,1));
     CHECK(field(lo, 4, 1) == 0, "t13 CKDIV8 must be enabled (0) for 1.2MHz; lfuse bit4=%u", field(lo,4,1));
     CHECK(field(lo, 0, 2) == 0x2, "t13 CKSEL[1:0] must be 0b10 (9.6MHz int RC); got 0b%u%u",
           field(lo,1,1), field(lo,0,1));
@@ -142,7 +142,7 @@ static void verify_t85(void) {
     CHECK(field(hi, 7, 1) == 1, "t85 RSTDISBL must be 1 (PB5 stays RESET, keep ISP); hfuse bit7=%u", field(hi,7,1));
     CHECK(field(hi, 6, 1) == 1, "t85 DWEN must be disabled (1); hfuse bit6=%u", field(hi,6,1));
     CHECK(field(hi, 5, 1) == 0, "t85 SPIEN must be enabled (0) to keep ISP; hfuse bit5=%u", field(hi,5,1));
-    CHECK(field(hi, 4, 1) == 1, "t85 WDTON should be 1 (software-controlled WDT); hfuse bit4=%u", field(hi,4,1));
+    CHECK(field(hi, 4, 1) == 0, "t85 WDTON must be 0 (WDT forced always-on, cannot be disabled by software); hfuse bit4=%u", field(hi,4,1));
     CHECK(field(hi, 0, 3) == 0x5, "t85 BODLEVEL[2:0] must be 0b101 (2.7V); got 0x%x", field(hi,0,3));
 }
 

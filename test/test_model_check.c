@@ -47,55 +47,9 @@
 #include <stdio.h>
 #include <string.h>
 
-#include "bypass_config_host.h" // RELEASE_THRESH, PRESSED_THRESH (firmware truth)
-
-typedef enum { PRESS_DEBOUNCE_WAIT = 0, RELEASE_DEBOUNCE_WAIT } program_state_t;
-typedef enum { BYPASS = 0, ENGAGED } effect_state_t;
-
-typedef struct {
-    uint8_t program_state;   // program_state_t
-    uint8_t effect_state;    // effect_state_t
-    uint8_t debounce_counter;
-} state_t;
-
-// Result of stepping one millisecond: the next state plus whether a toggle
-// (effect-state change) occurred during that step.
-typedef struct {
-    state_t next;
-    int     toggled;
-} step_result_t;
-
-// One 1ms step: ISR saturating integrator, then one main-loop state-machine
-// pass. This mirrors attiny13_bypass.c exactly (and model_step_ms() in
-// test_logic_host.c). pin_low != 0 means PB0 read low == switch pressed.
-static step_result_t step(state_t s, int pin_low) {
-    step_result_t r;
-    r.toggled = 0;
-
-    // --- ISR: saturating integrator update ---
-    if (pin_low) {
-        if (s.debounce_counter < RELEASE_THRESH) { s.debounce_counter++; }
-    } else {
-        if (s.debounce_counter > 0) { s.debounce_counter--; }
-    }
-
-    // --- main loop state machine ---
-    if (s.program_state == PRESS_DEBOUNCE_WAIT) {
-        if (s.debounce_counter >= PRESSED_THRESH) {
-            s.debounce_counter = RELEASE_THRESH;
-            s.program_state    = RELEASE_DEBOUNCE_WAIT;
-            s.effect_state     = (s.effect_state == BYPASS) ? ENGAGED : BYPASS;
-            r.toggled = 1;
-        }
-    } else { // RELEASE_DEBOUNCE_WAIT
-        if (s.debounce_counter == 0) {
-            s.program_state = PRESS_DEBOUNCE_WAIT;
-        }
-    }
-
-    r.next = s;
-    return r;
-}
+// state_t, step_result_t, step(), enum constants, and firmware thresholds.
+// This is the single source of truth shared with test_symbolic.c.
+#include "model_step.h"
 
 //////////////////////////////////////////////////////////////////////////////
 // Harness

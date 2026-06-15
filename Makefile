@@ -86,16 +86,16 @@ AVRDUDE_PART   ?= t13
 AVRDUDE_PART85 ?= t85
 
 # Fuse bytes for this design (verified bit-by-bit; see attiny13_bypass.c header):
-#   lfuse=0x6A : SPIEN on, CKDIV8 on (1.2MHz), SUT=14CK+64ms, int 9.6MHz RC
+#   lfuse=0x4A : SPIEN on, CKDIV8 on (1.2MHz), SUT=14CK+64ms, int 9.6MHz RC, WDTON forced on
 #   hfuse=0xFB : 2.7V brown-out detection enabled; RSTDISBL/DWEN left safe
-LFUSE = 0x6a
+LFUSE = 0x4a
 HFUSE = 0xfb
 
 # ATtiny85 fuse bytes:
 #   lfuse=0x62 : CKDIV8 on (1.0MHz), CKOUT off, SUT=14CK+64ms, int 8MHz RC
-#   hfuse=0xDD : 2.7V BOD, SPIEN on, RSTDISBL/DWEN/WDTON/EESAVE safe
+#   hfuse=0xCD : 2.7V BOD, SPIEN on, RSTDISBL/DWEN safe, WDTON forced on
 LFUSE85 = 0x62
-HFUSE85 = 0xdd
+HFUSE85 = 0xcd
 
 # Common avrdude flags for the ATtiny13a (programmer + part).
 AVRDUDE_FLAGS = -c $(PROGRAMMER) -p $(AVRDUDE_PART)
@@ -401,7 +401,7 @@ test-model-check: test/test_model_check
 	./test/test_model_check
 
 # Build rule for the state-space checker.
-test/test_model_check: test/test_model_check.c test/bypass_config_host.h bypass_config.h
+test/test_model_check: test/test_model_check.c test/model_step.h test/bypass_config_host.h bypass_config.h
 	$(HOSTCC) $(HOST_CFLAGS) $(SANITIZE) -Itest $< -o $@
 
 # Symbolic / exhaustive single-step property check: proves the per-step
@@ -413,7 +413,7 @@ test-symbolic: test/test_symbolic
 	./test/test_symbolic
 
 # Build rule for the symbolic step checker.
-test/test_symbolic: test/test_symbolic.c test/bypass_config_host.h bypass_config.h
+test/test_symbolic: test/test_symbolic.c test/model_step.h test/bypass_config_host.h bypass_config.h
 	$(HOSTCC) $(HOST_CFLAGS) $(SANITIZE) -Itest $< -o $@
 
 # Optional: run the SAME single-step properties under KLEE symbolic execution
