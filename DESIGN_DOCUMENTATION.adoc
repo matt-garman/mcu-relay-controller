@@ -4,14 +4,14 @@
 
 == Why ATTiny13a
 
-    - Readily available in SMD and through-hole
-    - Low cost
-    - avr tools - mature, cross-platform, fully-featured
+    * Readily available in SMD and through-hole
+    * Low cost
+    * avr tools - mature, cross-platform, fully-featured
       free/open-source tooling
-    - Low-ish power by use of CPU IDLE mode for typically <1mA
+    * Low-ish power by use of CPU IDLE mode for typically <1mA
       current draw
-    - Trivial hardware implementation
-    - Schmitt trigger GPIO pins
+    * Trivial hardware implementation
+    * Schmitt trigger GPIO pins
 
 
 == High-Level Functional Description
@@ -117,7 +117,7 @@ user.  The release-debounce, or lock-out period, is longer so as to
       <10ms press latency: PRESSED_THRESH = floor(10 / 1.111) = 9.
       Current value 8 has a 1-tick margin.  Note that changing to 10
       10 would violate the "<10ms press latency" goal.  Also note
-      that a highly bouncy switch, or significant EMI/RFI *will*
+      that a highly bouncy switch, or significant EMI/RFI _will_
       cause the press latency to exceed 10ms.
 
     * PRESSED_THRESH lower bound (EMI rejection):
@@ -243,8 +243,8 @@ PCB space, the TVS diode and ferrite bead can be omitted.
     * PIN 15: BCOM
     * PIN 16: VDD
 
-xSEL LOW  -> x0 active (xCOM tied to x0)
-xSEL HIGH -> x1 active (xCOM tied to x1)
+ xSEL LOW  -> x0 active (xCOM tied to x0)
+ xSEL HIGH -> x1 active (xCOM tied to x1)
 
 === Circuit Net Naming Conventions
 
@@ -290,7 +290,6 @@ xSEL HIGH -> x1 active (xCOM tied to x1)
 | MCU | CTL | BCOM | JOU | CCOM | DRY | FXN      | FXO      | program state 
 
 | 0   | 1   | B1   | DRY | C1   | JOU | floating | floating | BYPASS
-
 | 1   | 0   | B0   | FXO | C0   | FXN | DRY      | JOU      | ENGAGE
 |===
 
@@ -318,11 +317,11 @@ xSEL HIGH -> x1 active (xCOM tied to x1)
 
 .Table Improved Scheme With Muting: Truth Table
 |===
-| MCU1 | CTL1 | MCU2 | CTL2 | ACOM | BCOM | CCOM | DRY      | FXN | FXO | JOU | program state
+| MCU1 | CTL1 | MCU2 | CTL2 | ACOM | BCOM | CCOM | DRY      | FXN | FXO | JOU | Program State
 
 | 0    | 1    | 0    | 1    | A1   | B1   | C1   | JOU      | GND | GND | DRY | BYPASS
 | 0    | 1    | 1    | 0    | A1   | B1   | C0   | floating | GND | GND | FXO | MUTE
-| 1    | 0    | 0    | 1    | A0   | B0   | C1   | FXN+JOU  | DRY |     | DRY | *invalid*
+| 1    | 0    | 0    | 1    | A0   | B0   | C1   | FXN+JOU  | DRY |     | DRY | *_invalid_*
 | 1    | 0    | 1    | 0    | A0   | B0   | C0   | FXN      | DRY | FXO | FXO | ENGAGE
 |===
 
