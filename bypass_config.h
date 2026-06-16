@@ -27,10 +27,42 @@
 #endif
 
 
+
 // used named constants for GPIO pin functions for readability
-#define FOOTSW_PIN (PB0)
-#define LED_PIN    (PB1)
-#define CD4053_PIN (PB2)
+#undef FOOTSW_PIN
+#undef LED_PIN
+#undef CD4053_PIN
+
+#define CD4053_SIMPLE
+//#define CD4053_WITH_MUTE
+//#define TQ2_L2_5V_RELAY
+
+// simplest case: a single control pin to the CD4053/TMUX4053
+#if defined(CD4053_SIMPLE)
+#  define FOOTSW_PIN (PB0)
+#  define LED_PIN    (PB1)
+#  define CD4053_PIN (PB2)
+// two control pins to the CD4053/TMUX4053, one for effect circuit switching
+// and one for mute control
+#elif defined(CD4053_WITH_MUTE)
+#  define FOOTSW_PIN           (PB0)
+#  define LED_PIN              (PB1)
+#  define CD4053_CTL1          (PB2)
+#  define CD4053_CTL2          (PB3)
+#  define CD4053_MUTE_DELAY_MS (5) // how long to mute the effect before
+                                   // switching between effect/bypass
+#elif defined(TQ2_L2_5V_RELAY)
+#  define FOOTSW_PIN         (PB0)
+#  define LED_PIN            (PB1)
+#  define RELAY_RESET_PIN    (PB2)
+#  define RELAY_SET_PIN      (PB3)
+#  define TQ2_L2_5V_PULSE_MS (12) // Panasonic TQ-L2-5V specifies a 4ms
+                                  // minimum current pulse for the set/reset
+                                  // coils; multiple by a factor of three for
+                                  // a safety margin
+#else
+#  error "Need to define CD4053_SIMPLE, CD4053_WITH_MUTE, or TQ2_L2_5V_RELAY"
+#endif
 
 
 // number of HIGH PB0/footswitch pin reads to be considered 
