@@ -29,7 +29,10 @@ make test` and commit the new signature.
 == Simulator (integration tests)
 
   simavr:       1.6+dfsg-3build2  (Ubuntu package: simavr, libsimavr-dev)
-  install:      apt install simavr libsimavr-dev
+  install:      apt install simavr libsimavr-dev libelf-dev
+  note:         the sim test harness links against libelf (-lelf); libelf-dev
+                is NOT pulled in by libsimavr-dev, so it must be installed
+                explicitly or the test/test_sim_* link step fails.
   note:         ATtiny13 WDT-reset emulation is NOT available in simavr 1.6;
                 the ATtiny85 path is used for WDT tests.  See test/test_sim.c
                 for the #ifdef TARGET_T85 stubs.
@@ -61,7 +64,7 @@ make test` and commit the new signature.
 
 == Reproducing the environment (Ubuntu 24.04)
 
-  sudo apt install gcc-avr avr-libc simavr libsimavr-dev \
+  sudo apt install gcc-avr avr-libc simavr libsimavr-dev libelf-dev \
                    gcc clang clang-tidy cppcheck
 
   Optional analysis tools:
@@ -80,7 +83,7 @@ For CI reproducibility, prefer Ubuntu 24.04 LTS Docker image:
 
 ....
     docker run --rm -v $(pwd):/src ubuntu:24.04 bash -c \
-      "apt-get install -y gcc-avr avr-libc simavr libsimavr-dev gcc && \
+      "apt-get install -y gcc-avr avr-libc simavr libsimavr-dev libelf-dev gcc && \
        cd /src/nextgen && make test"
 ....
 
