@@ -22,6 +22,9 @@ The user also prefers to manually do git commits.  However, you may
 be asked to generate a "commit_msg.txt" file that the user will use
 for the git commit log message.
 
+In general, it is OK for you to perform read-only git operations.
+Please let the user manually do any modifying git operations.
+
 Do NOT include "Co-Authored-By Claude" or similar references in the
 code, documentation, commit messages or any other artifacts you
 create or modify.
