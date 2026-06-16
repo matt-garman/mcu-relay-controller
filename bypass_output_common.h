@@ -1,7 +1,13 @@
 #ifndef BYPASS_OUTPUT_COMMON_H__
 #define BYPASS_OUTPUT_COMMON_H__
 
-#include <avr/io.h>
+// Pin names (PB0/PB1/...) come from <avr/io.h> on the AVR target. Host test
+// code (see test/bypass_output_host.h) defines those names itself before
+// including this header, so it can read the SAME pin assignments the firmware
+// uses without pulling in the AVR-only <avr/io.h>.
+#if defined(__AVR__)
+#  include <avr/io.h>
+#endif
 
 
 // footswitch and status LED pins are common across all output variants

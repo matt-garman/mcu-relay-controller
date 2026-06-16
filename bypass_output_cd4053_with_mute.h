@@ -1,7 +1,9 @@
 #ifndef BYPASS_OUTPUT_CD4053_WITH_MUTE_H__
 #define BYPASS_OUTPUT_CD4053_WITH_MUTE_H__
 
-#include <avr/io.h>
+#if defined(__AVR__)
+#  include <avr/io.h>
+#endif
 
 
 // two control pins to the CD4053/TMUX4053, to enable mute-before-switch

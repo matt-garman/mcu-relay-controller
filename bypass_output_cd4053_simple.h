@@ -1,7 +1,9 @@
 #ifndef BYPASS_OUTPUT_CD4053_SIMPLE_H__
 #define BYPASS_OUTPUT_CD4053_SIMPLE_H__
 
-#include <avr/io.h>
+#if defined(__AVR__)
+#  include <avr/io.h>
+#endif
 
 
 // a single control pin to the CD4053/TMUX4053

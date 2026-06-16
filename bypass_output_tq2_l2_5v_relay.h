@@ -1,7 +1,9 @@
 #ifndef BYPASS_OUTPUT_TQ2_L2_5V_RELAY_H__
 #define BYPASS_OUTPUT_TQ2_L2_5V_RELAY_H__
 
-#include <avr/io.h>
+#if defined(__AVR__)
+#  include <avr/io.h>
+#endif
 
 
 #define RELAY_RESET_PIN (PB2)
