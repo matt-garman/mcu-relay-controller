@@ -1,6 +1,8 @@
 
 # MCU Firmware for Switch Debounce and Electric Instrument Effects Switching
 
+[![CI](https://github.com/matt-garman/mcu-bypass-firmware/actions/workflows/ci.yml/badge.svg)](https://github.com/matt-garman/mcu-bypass-firmware/actions/workflows/ci.yml)
+
 The project contains firmware for the ATtiny13a and ATtinyX5 AVR-family
 microcontrollers.  The firmware is intended to be used for electric instrument
 effects (e.g. guitar effect pedals) bypass switching.  The firmware has four

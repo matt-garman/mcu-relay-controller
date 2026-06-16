@@ -1,0 +1,141 @@
+name: CI
+
+# Continuous integration for the MCU bypass firmware.
+#
+# The goal of this workflow is reproducibility: it proves that the full
+# build + verification suite passes on a clean machine, not just on the
+# developer's box. The runner is pinned to ubuntu-24.04 so the installed
+# toolchain matches TOOLCHAIN.adoc (avr-gcc 7.3, gcc 13, clang/clang-tidy 18,
+# cppcheck 2.13, simavr 1.6) as closely as the distro packages allow.
+#
+# Most of the matrix lives inside the Makefile: a single `make test` already
+# exercises all three variants (cd4053, mute, relay) across the ATtiny13a and
+# the tinyx5 family, plus every analysis gate (clang-tidy, cppcheck,
+# clang-analyzer, MISRA-C:2012) and the golden-model coverage gate. The jobs
+# below wrap that, surface the per-MCU build matrix as discrete checks, and run
+# the slower exhaustive/mutation suite off the PR hot path.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+  schedule:
+    # Weekly exhaustive run (Mondays 06:00 UTC) so the long suite is exercised
+    # even when there are no pushes.
+    - cron: '0 6 * * 1'
+
+# Cancel superseded runs for the same ref to save CI minutes.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  DEBIAN_FRONTEND: noninteractive
+
+jobs:
+  # -------------------------------------------------------------------------
+  # Gating job: the full fast suite. This is the "build passing" badge.
+  # `make test` = analyze (clang-tidy + cppcheck + clang-analyzer + MISRA)
+  #             + host/model-check/symbolic/fuse tests
+  #             + simavr functional + fault-injection across all variants,
+  #               ATtiny13a and tinyx5
+  #             + golden-model coverage gate.
+  # -------------------------------------------------------------------------
+  verify:
+    name: verify (make test)
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install toolchain
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            make gcc-avr avr-libc \
+            simavr libsimavr-dev \
+            clang clang-tidy cppcheck
+
+      - name: Record toolchain versions
+        run: |
+          echo "== avr-gcc =="     && avr-gcc --version | head -1
+          echo "== gcc =="         && gcc --version | head -1
+          echo "== clang =="       && clang --version | head -1
+          echo "== clang-tidy ==" && clang-tidy --version | head -2 | tail -1
+          echo "== cppcheck =="    && cppcheck --version
+          echo "== simavr =="      && (simavr --version 2>&1 | head -1 || true)
+          echo "== python3 =="     && python3 --version
+
+      - name: Full verification suite
+        run: make test
+
+  # -------------------------------------------------------------------------
+  # Visible build matrix: prove every variant builds for every supported MCU
+  # and publish the firmware images + size reports. `make all13/all45/all85`
+  # build all variants for that part; the size<n> target prints flash/RAM.
+  # -------------------------------------------------------------------------
+  build-matrix:
+    name: build (${{ matrix.mcu }})
+    runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - mcu: attiny13a
+            build: all13
+            size: size
+          - mcu: attiny85
+            build: all85
+            size: size85
+          - mcu: attiny45
+            build: all45
+            size: size45
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install AVR toolchain
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y make gcc-avr avr-libc
+
+      - name: Build all variants for ${{ matrix.mcu }}
+        run: make ${{ matrix.build }}
+
+      - name: Resource utilization (flash / RAM)
+        run: make ${{ matrix.size }} | tee size-${{ matrix.mcu }}.txt
+
+      - name: Upload firmware images
+        uses: actions/upload-artifact@v4
+        with:
+          name: firmware-${{ matrix.mcu }}
+          path: |
+            *.hex
+            size-${{ matrix.mcu }}.txt
+          if-no-files-found: error
+
+  # -------------------------------------------------------------------------
+  # Exhaustive / mutation suite (minutes-long). Kept off every PR: runs on
+  # pushes to main, the weekly schedule, and manual dispatch. `make test-long`
+  # = the full suite with the exhaustive input domains plus mutation testing
+  # (verifies the suite actually kills injected firmware faults).
+  # -------------------------------------------------------------------------
+  stress:
+    name: stress (make test-long)
+    runs-on: ubuntu-24.04
+    if: >-
+      github.event_name == 'push' ||
+      github.event_name == 'schedule' ||
+      github.event_name == 'workflow_dispatch'
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install toolchain
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            make gcc-avr avr-libc \
+            simavr libsimavr-dev \
+            clang clang-tidy cppcheck
+
+      - name: Exhaustive + mutation suite
+        run: make test-long
