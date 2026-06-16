@@ -21,3 +21,7 @@ user's guidance.  When in doubt, ask.
 The user also prefers to manually do git commits.  However, you may
 be asked to generate a "commit_msg.txt" file that the user will use
 for the git commit log message.
+
+Do NOT include "Co-Authored-By Claude" or similar references in the
+code, documentation, commit messages or any other artifacts you
+create or modify.
