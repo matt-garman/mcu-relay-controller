@@ -1,5 +1,6 @@
 #include "bypass_core.h"
 #include "bypass_output.h"
+#include "bypass_output_common.h"
 #include "bypass_output_cd4053_with_mute.h"
 
 

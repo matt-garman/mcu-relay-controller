@@ -1,6 +1,7 @@
 
 #include "bypass_core.h"
 #include "bypass_output.h"
+#include "bypass_output_common.h"
 #include "bypass_output_cd4053_simple.h"
 
 // assert critical pin directions hold: LED & CD4053 outputs, footswitch input

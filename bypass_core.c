@@ -34,7 +34,10 @@
 // Note: useful fuse tool here: https://www.engbedded.com/fusecalc/
 //
 
+#include "bypass_core.h"
 #include "bypass_config.h"
+#include "bypass_output.h"
+#include "bypass_output_common.h"
 #include "bypass_types.h"
 
 #include <assert.h>        // For static_assert()

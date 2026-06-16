@@ -1,13 +1,14 @@
 #include "bypass_core.h"
 #include "bypass_output.h"
-#include "bypass_output_tq2-l2-5v_relay.h"
+#include "bypass_output_common.h"
+#include "bypass_output_tq2_l2_5v_relay.h"
 
 
-// FIXME
 uint8_t is_sanity_check_failed(void) {
     return
         ((DDRB & ((1 << LED_PIN) | (1 << RELAY_SET_PIN) | (1 << RELAY_RESET_PIN))) !=
          ((1 << LED_PIN) | (1 << RELAY_SET_PIN) | (1 << RELAY_RESET_PIN)))
+        ;
 }
 
 
