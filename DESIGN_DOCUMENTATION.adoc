@@ -147,13 +147,26 @@ user.  The release-debounce, or lock-out period, is longer so as to
     * PB1, PB2 will have 100k pulldown resistors
 
 
-== Footswitch-GPIO wiring
+== ATtiny13a / ATtiny85 Pinout (DIP-8 Package)
+
+....
+                                        +----+
+(PCINT5/~RESET/ADC0/dW)        PB5 pin1-|    |-pin8 VCC
+(PCINT3/XTAL1/CLKI/~OC1B/ADC3) PB3 pin2-|    |-pin7 PB2 (SCK/USCK/SCL/ADC1/T0/INT0/PCINT2)
+(PCINT4/XTAL2/CLKO/OC1B/ADC2)  PB4 pin3-|    |-pin6 PB1 (MISO/DO/AIN1/OC0B/OC1A/PCINT1)
+                               GND pin4-|    |-pin5 PB0 (MOSI/DI/SDA/AIN0/OC0A/~OC1A/AREF/PCINT0)
+                                        +----+
+....
+
+
+== Optimal Footswitch-GPIO Wiring for EMI/RFI resiliency
 
 The GPIO pin tied to the footswitch (normally high) will have some
 hardware-level EMI/RFI protections and also aid with debounce.
 Wiring is as follows:
 
 Footswitch lead 1: GND
+
 Footswitch lead 2 ("FOOTSW_PIN"):
 
     * TVS diode to ground (cathode=signal, anode=GND)
