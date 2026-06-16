@@ -13,5 +13,6 @@ void set_engaged_state(void);
 // - return 0 on sanity check OK
 uint8_t is_sanity_check_failed(void);
 
+void init_ddrb_setup(void);
 
 #endif // BYPASS_OUTPUT_H__

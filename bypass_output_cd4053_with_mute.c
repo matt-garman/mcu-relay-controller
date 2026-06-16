@@ -3,9 +3,16 @@
 #include "bypass_output_cd4053_with_mute.h"
 
 
-// FIXME
 uint8_t is_sanity_check_failed(void) {
-    return 0;
+    return 
+        ((DDRB & ((1 << LED_PIN) | (1 << CD4053_CTL1) | (1 << CD4053_CTL2))) !=
+         ((1 << LED_PIN) | (1 << CD4053_CTL1) | (1 << CD4053_CTL2)))
+        ;
+}
+
+
+void init_ddrb_setup(void) {
+    DDRB = (1 << LED_PIN) | (1 << CD4053_CTL1) | (1 << CD4053_CTL2) | (1 << PB4);
 }
 
 

@@ -2,8 +2,6 @@
 #define BYPASS_OUTPUT_TQ2_L2_5V_RELAY_H__
 
 
-#define FOOTSW_PIN      (PB0)
-#define LED_PIN         (PB1)
 #define RELAY_RESET_PIN (PB2)
 #define RELAY_SET_PIN   (PB3)
 

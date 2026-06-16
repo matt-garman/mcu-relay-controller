@@ -5,7 +5,14 @@
 
 // FIXME
 uint8_t is_sanity_check_failed(void) {
-    return 0;
+    return
+        ((DDRB & ((1 << LED_PIN) | (1 << RELAY_SET_PIN) | (1 << RELAY_RESET_PIN))) !=
+         ((1 << LED_PIN) | (1 << RELAY_SET_PIN) | (1 << RELAY_RESET_PIN)))
+}
+
+
+void init_ddrb_setup(void) {
+    DDRB = (1 << LED_PIN) | (1 << RELAY_SET_PIN) | (1 << RELAY_RESET_PIN) | (1 << PB4);
 }
 
 
@@ -21,7 +28,7 @@ void set_bypass_state(void) {
     effect_state_ = BYPASS;   // set effect state to BYPASS
     led_pin_set_low();        // dark status LED
 
-    pin_set_high(RELAY_RESET_PIN); // pulse set coil
+    pin_set_high(RELAY_RESET_PIN); // pulse reset coil
     _delay_ms(TQ2_L2_5V_PULSE_MS); // busy sleep for coil pulse time
 
     set_relay_coils_low();

@@ -3,8 +3,6 @@
 
 // two control pins to the CD4053/TMUX4053, to enable mute-before-switch
 // capability
-#define FOOTSW_PIN  (PB0)
-#define LED_PIN     (PB1)
 #define CD4053_CTL1 (PB2)
 #define CD4053_CTL2 (PB3)
 

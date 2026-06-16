@@ -183,13 +183,8 @@ static void init(void) {
     //   FOOTSW_PIN is always an input
     //   All other pins are configured as output, even if unused
     //   Unused pins are driven low
-#if defined(CD4053_SIMPLE)
-    DDRB = (1 << LED_PIN) | (1 << CD4053_PIN) | (1 << PB3) | (1 << PB4);
-#elif defined(CD4053_WITH_MUTE)
-    DDRB = (1 << LED_PIN) | (1 << CD4053_CTL1) | (1 << CD4053_CTL2) | (1 << PB4);
-#elif defined(TQ2_L2_5V_RELAY)
-    DDRB = (1 << LED_PIN) | (1 << RELAY_SET_PIN) | (1 << RELAY_RESET_PIN) | (1 << PB4);
-#endif
+    init_ddrb_setup();
+
 
     // enable the input pullup for FOOTSW_PIN
     // note additional external 10k pullup

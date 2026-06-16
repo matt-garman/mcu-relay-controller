@@ -10,6 +10,11 @@ uint8_t is_sanity_check_failed(void) {
 }
 
 
+void init_ddrb_setup(void) {
+    DDRB = (1 << LED_PIN) | (1 << CD4053_PIN) | (1 << PB3) | (1 << PB4);
+}
+
+
 // CD4053_PIN high -> mosfet on  -> 4053 control pins low
 // CD4053_PIN low  -> mosfet off -> 4053 control pins high
 void set_bypass_state(void) {
