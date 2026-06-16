@@ -11,8 +11,8 @@ uint8_t is_sanity_check_failed(void) {
 
 // force both coils low
 static void set_relay_coils_low(void) {
-    pin_set_low(RELAY_RESET_PIN); }
-    pin_set_low(RELAY_SET_PIN); }
+    pin_set_low(RELAY_RESET_PIN);
+    pin_set_low(RELAY_SET_PIN);
 }
 
 void set_bypass_state(void) {

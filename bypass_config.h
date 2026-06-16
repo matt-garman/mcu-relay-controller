@@ -1,6 +1,15 @@
 #ifndef BYPASS_CONFIG_H__
 #define BYPASS_CONFIG_H__
 
+// Timer0 CTC config for a 1ms tick:
+//   ATtiny13/a (F_CPU=1.2MHz): 8 * (149 + 1) / 1200000  -> exactly 1ms
+//   ATtiny85   (F_CPU=1.0MHz): 8 * (124 + 1) / 1000000  -> exactly 1ms
+#if defined(__AVR_ATtiny85__)
+#  define TIMER0_OCR0A_1MS (124)
+#else // ATtiny13a
+#  define TIMER0_OCR0A_1MS (149)
+#endif
+
 
 // - core design assumes a 1ms timer interrupt (within the bounds of the MCU's
 //   built-in RC oscillator precision)
@@ -28,29 +37,6 @@
 
 
 
-// output-implementation-specific defintions
-// #undef'ed here - will be defined by appropriate bypass_output_*.h file
-#undef FOOTSW_PIN
-#undef LED_PIN
-#undef CD4053_PIN
-#undef CD4053_CTL1
-#undef CD4053_CTL2
-#undef CD4053_MUTE_DELAY_MS
-#undef RELAY_RESET_PIN
-#undef RELAY_SET_PIN
-#undef TQ2_L2_5V_PULSE_MS
-
-
-//#define CD4053_SIMPLE
-//#define CD4053_WITH_MUTE
-//#define TQ2_L2_5V_RELAY
-
-#elif defined(TQ2_L2_5V_RELAY)
-#else
-#  error "Need to define CD4053_SIMPLE, CD4053_WITH_MUTE, or TQ2_L2_5V_RELAY"
-#endif
-
-
 // number of HIGH PB0/footswitch pin reads to be considered 
 // release-debounced, i.e. the "lock-out" period
 #define RELEASE_THRESH (25)
@@ -72,16 +58,6 @@
 // engage/bypass) to balance responsiveness with robust switch
 // de-bouncing
 #define PRESSED_THRESH (8)
-
-// Timer0 CTC config for a 1ms tick:
-//   ATtiny13/a (F_CPU=1.2MHz): 8 * (149 + 1) / 1200000  -> exactly 1ms
-//   ATtiny85   (F_CPU=1.0MHz): 8 * (124 + 1) / 1000000  -> exactly 1ms
-#if defined(__AVR_ATtiny85__)
-#  define TIMER0_OCR0A_1MS (124)
-#else // ATtiny13a
-#  define TIMER0_OCR0A_1MS (149)
-#endif
- 
 
 
 #endif // BYPASS_CONFIG_H__
