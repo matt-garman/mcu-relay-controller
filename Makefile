@@ -8,15 +8,18 @@
 #     - cd4053 : CD4053/TMUX4053 analog switch, single control line (CD4053_SIMPLE)
 #     - mute   : CD4053/TMUX4053 with mute-before-switch (CD4053_WITH_MUTE)
 #     - relay  : Panasonic TQ2-L2-5V latching relay, pulsed coils (TQ2_L2_5V_RELAY)
-#   Each variant is built for two MCUs:
-#     - ATtiny13a @ 1.2 MHz : the primary production part.
-#     - ATtiny85  @ 1.0 MHz : a secondary build used ONLY for verification --
-#                             simavr can model the ATtiny85 watchdog system
-#                             reset, which it cannot do for the ATtiny13a.
+#   Each variant is built for:
+#     - ATtiny13a @ 1.2 MHz : the primary part (distinct core).
+#     - tinyx5 family @ 1.0 MHz : ATtiny85 and ATtiny45 (and trivially the t25).
+#                             These are core-identical to each other; simavr can
+#                             model their watchdog system reset (which it cannot
+#                             do for the ATtiny13a), so they also carry the
+#                             WDT-reset / fault-injection coverage.
 #
 #   Variant outputs are named bypass_<variant>.elf/.hex (ATtiny13a) and
-#   bypass_<variant>_t85.elf/.hex (ATtiny85). Pick a variant for single-target
-#   actions with VARIANT=<name>, e.g. `make VARIANT=relay program`.
+#   bypass_<variant>_t<n>.elf/.hex (tinyx5, n in {85,45}). Pick a variant for
+#   single-target actions with VARIANT=<name>, e.g. `make VARIANT=relay program`
+#   (ATtiny13a) or `make VARIANT=relay program45` (ATtiny45).
 #
 # HOW THE TESTS ARE LAYERED (fast -> thorough)
 #   1. analyze            static analysis (clang-tidy / -fanalyzer)
@@ -77,11 +80,20 @@ OBJCOPY  = avr-objcopy
 SIZE     = avr-size
 AVRDUDE  = avrdude
 
-# --- Secondary (ATtiny85) verification target -------------------------------
-# Same firmware sources, different MCU/flags. Exists because simavr can model
-# the ATtiny85 watchdog reset (used by the fault-injection tests).
-MCU85      = attiny85
-F_CPU85    = 1000000UL
+# --- Secondary targets: the tinyx5 family (ATtiny25/45/85) ------------------
+# These parts are core-identical to one another: same 1.0 MHz config, same
+# registers, same fuse bytes -- they differ ONLY in flash/RAM size, the -mmcu
+# name, and the avrdude part. simavr models their watchdog system reset (which
+# it cannot do for the ATtiny13a), so they also carry the WDT-reset and
+# fault-injection coverage for the whole family. Suffix <n> names the artifacts
+# (bypass_<variant>_t<n>.elf, targets size<n>/flash<n>/...). To add a sibling
+# (e.g. the ATtiny25), append its number here and define mmcu_<n>/part_<n>.
+TINYX5     = 85 45
+mmcu_85    = attiny85
+mmcu_45    = attiny45
+part_85    = t85
+part_45    = t45
+F_CPU_X5   = 1000000UL
 
 # --- Output variants ---------------------------------------------------------
 # The hardware-agnostic core (bypass_core.c) links against exactly one output
@@ -119,19 +131,18 @@ VARIANT ?= cd4053
 #   make flash PROGRAMMER=usbtiny
 PROGRAMMER   ?= usbasp
 AVRDUDE_PART   ?= t13
-AVRDUDE_PART85 ?= t85
 
-# Fuse bytes for this design (verified bit-by-bit; see attiny13_bypass.c header):
+# Fuse bytes for this design (verified bit-by-bit; see bypass_core.c header):
 #   lfuse=0x4A : SPIEN on, CKDIV8 on (1.2MHz), SUT=14CK+64ms, int 9.6MHz RC, WDTON forced on
 #   hfuse=0xFB : 2.7V brown-out detection enabled; RSTDISBL/DWEN left safe
 LFUSE = 0x4a
 HFUSE = 0xfb
 
-# ATtiny85 fuse bytes:
+# tinyx5 family fuse bytes (identical across ATtiny25/45/85):
 #   lfuse=0x62 : CKDIV8 on (1.0MHz), CKOUT off, SUT=14CK+64ms, int 8MHz RC
 #   hfuse=0xCD : 2.7V BOD, SPIEN on, RSTDISBL/DWEN safe, WDTON forced on
-LFUSE85 = 0x62
-HFUSE85 = 0xcd
+LFUSE_X5 = 0x62
+HFUSE_X5 = 0xcd
 
 # Common avrdude flags for the ATtiny13a (programmer + part).
 AVRDUDE_FLAGS = -c $(PROGRAMMER) -p $(AVRDUDE_PART)
@@ -254,11 +265,10 @@ CFLAGS_COMMON = -Os \
           -ffunction-sections -fdata-sections \
           -Werror -Wall -Wextra -Wconversion -std=c11
 
+# Primary (ATtiny13a). The tinyx5 family's per-chip flags are computed inline in
+# the build/sim templates from mmcu_<n> + F_CPU_X5 + CFLAGS_COMMON.
 CFLAGS    = -mmcu=$(MCU)   -DF_CPU=$(F_CPU)   $(CFLAGS_COMMON)
-CFLAGS85  = -mmcu=$(MCU85) -DF_CPU=$(F_CPU85) $(CFLAGS_COMMON)
-
 LDFLAGS   = -mmcu=$(MCU)   -Wl,--gc-sections
-LDFLAGS85 = -mmcu=$(MCU85) -Wl,--gc-sections
 
 # --- Toolchain-change detection ----------------------------------------------
 # The firmware's RAM-corruption sanity checks (main()'s guard) -- and the
@@ -287,47 +297,60 @@ $(TOOLCHAIN_STAMP): FORCE
 FORCE:
 
 # Targets that are commands, not files.
-.PHONY: all all13 all85 clean size readfuses fuses flash program help \
+# Targets that are commands, not files. Per-chip tinyx5 targets (all85/size85/
+# fuses85/flash85/program85, *45, test-sim-t85, ...) are declared .PHONY by the
+# templates that generate them.
+.PHONY: all all13 clean size readfuses fuses flash program help \
         test test-fast test-long stress \
-        test-host test-sim test-sim-t85 \
+        test-host test-sim test-sim-secondary \
         test-model-check test-fault-inject test-fuses test-symbolic test-mutation \
         analyze analyze-tidy analyze-cppcheck analyze-deep \
-        trace coverage coverage-check coverage-clean \
-        size85 fuses85 flash85 program85
+        trace coverage coverage-check coverage-clean
 
 # ============================================================================
-# BUILD -- firmware variant matrix (3 variants x 2 MCUs)
+# BUILD -- firmware matrix (3 variants x {ATtiny13a, tinyx5 family})
 # ============================================================================
 #
-# Per-variant ELF/HEX rules are generated by the template below so adding a
-# variant needs no new build rules. Each rule links bypass_core.c with the
+# ELF/HEX rules are generated by templates so adding a variant OR a tinyx5
+# sibling needs no new build rules. Each rule links bypass_core.c with the
 # variant's driver source and selects the variant with its -D macro. The
 # toolchain stamp is a prerequisite so a compiler change forces a rebuild (and
 # thus re-runs the fault-injection gate that validates the RAM-corruption guard).
 #
-# Generated for each variant <v>:
-#   bypass_<v>.elf  / bypass_<v>.hex       (ATtiny13a, 1.2 MHz)
-#   bypass_<v>_t85.elf / bypass_<v>_t85.hex (ATtiny85, 1.0 MHz)
-define VARIANT_BUILD_RULES
+# Generated per variant <v> (ATtiny13a, 1.2 MHz):
+#   bypass_<v>.elf / bypass_<v>.hex
+# Generated per variant <v> x tinyx5 chip <n> (1.0 MHz):
+#   bypass_<v>_t<n>.elf / bypass_<v>_t<n>.hex
+
+# $(call VARIANT_BUILD_T13,variant)
+define VARIANT_BUILD_T13
 $(FW_BASE)_$(1).elf: $$(CORE_SRC) $$(src_$(1)) $$(FW_HEADERS) $$(TOOLCHAIN_STAMP)
 	$$(CC) $$(CFLAGS) -D$$(macro_$(1)) $$(LDFLAGS) -o $$@ $$(CORE_SRC) $$(src_$(1))
 
 $(FW_BASE)_$(1).hex: $(FW_BASE)_$(1).elf
 	$$(OBJCOPY) -O ihex -R .eeprom $$< $$@
+endef
+$(foreach v,$(VARIANTS),$(eval $(call VARIANT_BUILD_T13,$(v))))
 
-$(FW_BASE)_$(1)_t85.elf: $$(CORE_SRC) $$(src_$(1)) $$(FW_HEADERS) $$(TOOLCHAIN_STAMP)
-	$$(CC) $$(CFLAGS85) -D$$(macro_$(1)) $$(LDFLAGS85) -o $$@ $$(CORE_SRC) $$(src_$(1))
+# $(call VARIANT_BUILD_X5,variant,chip-number) -- one tinyx5 chip
+define VARIANT_BUILD_X5
+$(FW_BASE)_$(1)_t$(2).elf: $$(CORE_SRC) $$(src_$(1)) $$(FW_HEADERS) $$(TOOLCHAIN_STAMP)
+	$$(CC) -mmcu=$$(mmcu_$(2)) -DF_CPU=$$(F_CPU_X5) $$(CFLAGS_COMMON) -Wl,--gc-sections \
+		-D$$(macro_$(1)) -o $$@ $$(CORE_SRC) $$(src_$(1))
 
-$(FW_BASE)_$(1)_t85.hex: $(FW_BASE)_$(1)_t85.elf
+$(FW_BASE)_$(1)_t$(2).hex: $(FW_BASE)_$(1)_t$(2).elf
 	$$(OBJCOPY) -O ihex -R .eeprom $$< $$@
 endef
-$(foreach v,$(VARIANTS),$(eval $(call VARIANT_BUILD_RULES,$(v))))
+$(foreach v,$(VARIANTS),$(foreach n,$(TINYX5),$(eval $(call VARIANT_BUILD_X5,$(v),$(n)))))
 
-# Convenience lists of every variant's artifacts.
+# Convenience lists of every variant's artifacts (t13a + each tinyx5 chip).
 ALL_ELF13 = $(foreach v,$(VARIANTS),$(FW_BASE)_$(v).elf)
 ALL_HEX13 = $(foreach v,$(VARIANTS),$(FW_BASE)_$(v).hex)
-ALL_ELF85 = $(foreach v,$(VARIANTS),$(FW_BASE)_$(v)_t85.elf)
-ALL_HEX85 = $(foreach v,$(VARIANTS),$(FW_BASE)_$(v)_t85.hex)
+ALL_ELFX5 = $(foreach v,$(VARIANTS),$(foreach n,$(TINYX5),$(FW_BASE)_$(v)_t$(n).elf))
+ALL_HEXX5 = $(foreach v,$(VARIANTS),$(foreach n,$(TINYX5),$(FW_BASE)_$(v)_t$(n).hex))
+# Per-chip ELF/HEX lists (for the size<n>/all<n> targets).
+$(foreach n,$(TINYX5),$(eval ELF_t$(n) := $(foreach v,$(VARIANTS),$(FW_BASE)_$(v)_t$(n).elf)))
+$(foreach n,$(TINYX5),$(eval HEX_t$(n) := $(foreach v,$(VARIANTS),$(FW_BASE)_$(v)_t$(n).hex)))
 
 # Default goal: build every ATtiny13a variant image and print sizes.
 all: all13
@@ -335,16 +358,19 @@ all: all13
 # Build all ATtiny13a variant firmwares (.hex) + print sizes.
 all13: $(ALL_HEX13) size
 
-# Build all ATtiny85 variant firmwares (.hex) + print sizes.
-all85: $(ALL_HEX85) size85
-
 # Report flash/RAM usage of every ATtiny13a variant build.
 size: $(ALL_ELF13)
 	@for e in $(ALL_ELF13); do echo "== $$e =="; $(SIZE) --mcu=$(MCU) -C $$e; done
 
-# Report flash/RAM usage of every ATtiny85 variant build.
-size85: $(ALL_ELF85)
-	@for e in $(ALL_ELF85); do echo "== $$e =="; $(SIZE) --mcu=$(MCU85) -C $$e; done
+# Per-tinyx5-chip build + size targets: all85/size85, all45/size45, ...
+# $(call MCU_X5_BUILD_TARGETS,chip-number)
+define MCU_X5_BUILD_TARGETS
+.PHONY: all$(1) size$(1)
+all$(1): $$(HEX_t$(1)) size$(1)
+size$(1): $$(ELF_t$(1))
+	@for e in $$(ELF_t$(1)); do echo "== $$$$e =="; $$(SIZE) --mcu=$$(mmcu_$(1)) -C $$$$e; done
+endef
+$(foreach n,$(TINYX5),$(eval $(call MCU_X5_BUILD_TARGETS,$(n))))
 
 # ============================================================================
 # CLEAN
@@ -353,8 +379,9 @@ size85: $(ALL_ELF85)
 # Remove all build outputs and test binaries (keeps coverage/ -- see
 # coverage-clean for that).
 clean:
-	rm -f $(ALL_ELF13) $(ALL_HEX13) $(ALL_ELF85) $(ALL_HEX85) \
-		$(foreach v,$(VARIANTS),test/test_sim_$(v) test/test_sim_$(v)_t85 test/test_trace_$(v)) \
+	rm -f $(ALL_ELF13) $(ALL_HEX13) $(ALL_ELFX5) $(ALL_HEXX5) \
+		$(foreach v,$(VARIANTS),test/test_sim_$(v) test/test_trace_$(v)) \
+		$(foreach v,$(VARIANTS),$(foreach n,$(TINYX5),test/test_sim_$(v)_t$(n))) \
 		test/test_logic_host \
 		test/test_model_check test/test_symbolic test/test_fuses \
 		test/test_symbolic.bc \
@@ -365,8 +392,9 @@ clean:
 # ============================================================================
 # FLASH / FUSES -- hardware (select the image with VARIANT=<name>)
 # ============================================================================
-# These act on ONE variant image, chosen by VARIANT (default cd4053). The t85
-# equivalents (*85) flash the ATtiny85 build of the same variant.
+# These act on ONE variant image, chosen by VARIANT (default cd4053). The
+# per-chip tinyx5 equivalents (fuses85/flash85/program85, fuses45/...) act on
+# the corresponding ATtiny85/ATtiny45 build of the selected variant.
 
 # Read-only: print the chip's currently programmed fuse bytes. Run this FIRST
 # to record a chip's existing fuses before changing anything.
@@ -387,18 +415,21 @@ flash: $(FW_BASE)_$(VARIANT).hex
 # Convenience: set fuses, then flash firmware. Use for a fresh chip.
 program: fuses flash
 
-# Write the ATtiny85 design fuse bytes.
-fuses85:
-	$(AVRDUDE) -c $(PROGRAMMER) -p $(AVRDUDE_PART85) \
-		-U lfuse:w:$(LFUSE85):m \
-		-U hfuse:w:$(HFUSE85):m
-
-# Flash the selected variant's ATtiny85 image.
-flash85: $(FW_BASE)_$(VARIANT)_t85.hex
-	$(AVRDUDE) -c $(PROGRAMMER) -p $(AVRDUDE_PART85) -U flash:w:$(FW_BASE)_$(VARIANT)_t85.hex:i
-
-# Convenience: set ATtiny85 fuses then flash (fresh chip).
-program85: fuses85 flash85
+# Per-tinyx5-chip fuses/flash/program targets: fuses85/flash85/program85,
+# fuses45/flash45/program45, ... All share the tinyx5 fuse bytes and differ only
+# in the avrdude part. flash<n>/program<n> act on the VARIANT-selected image.
+# $(call MCU_X5_FLASH_TARGETS,chip-number)
+define MCU_X5_FLASH_TARGETS
+.PHONY: fuses$(1) flash$(1) program$(1)
+fuses$(1):
+	$$(AVRDUDE) -c $$(PROGRAMMER) -p $$(part_$(1)) \
+		-U lfuse:w:$$(LFUSE_X5):m \
+		-U hfuse:w:$$(HFUSE_X5):m
+flash$(1): $(FW_BASE)_$$(VARIANT)_t$(1).hex
+	$$(AVRDUDE) -c $$(PROGRAMMER) -p $$(part_$(1)) -U flash:w:$(FW_BASE)_$$(VARIANT)_t$(1).hex:i
+program$(1): fuses$(1) flash$(1)
+endef
+$(foreach n,$(TINYX5),$(eval $(call MCU_X5_FLASH_TARGETS,$(n))))
 
 
 # ============================================================================
@@ -410,7 +441,7 @@ program85: fuses85 flash85
 # the fuse-byte check, the fault-injection sim tests, both simavr firmware
 # suites, and enforces a coverage floor on the model. Designed to finish in
 # ~1 minute for quick edit/build/test loops and CI.
-test: analyze test-host test-model-check test-symbolic test-fuses test-fault-inject test-sim test-sim-t85 coverage-check
+test: analyze test-host test-model-check test-symbolic test-fuses test-fault-inject test-sim test-sim-secondary coverage-check
 	@echo "=== all fast pre-hardware tests passed ==="
 
 # Explicit alias for the fast suite (same as `make test`).
@@ -421,7 +452,7 @@ test-fast: test
 # overrides). Use before tagging a release or signing off for hardware.
 test-long: HOST_DEFS = $(FULL_HOST_DEFS)
 test-long: SIM_DEFS  = $(FULL_SIM_DEFS)
-test-long: clean-tests analyze test-host test-model-check test-symbolic test-fuses test-fault-inject test-sim test-sim-t85 test-mutation coverage-check
+test-long: clean-tests analyze test-host test-model-check test-symbolic test-fuses test-fault-inject test-sim test-sim-secondary test-mutation coverage-check
 	@echo "=== all FULL (exhaustive) pre-hardware tests passed ==="
 
 # Friendly alias for the exhaustive suite (same as `make test-long`).
@@ -433,7 +464,8 @@ stress: test-long
 clean-tests:
 	rm -f test/test_logic_host test/test_model_check test/test_symbolic \
 	      test/test_fuses \
-	      $(foreach v,$(VARIANTS),test/test_sim_$(v) test/test_sim_$(v)_t85 test/test_trace_$(v))
+	      $(foreach v,$(VARIANTS),test/test_sim_$(v) test/test_trace_$(v)) \
+	      $(foreach v,$(VARIANTS),$(foreach n,$(TINYX5),test/test_sim_$(v)_t$(n)))
 
 # Golden-model unit tests: an INDEPENDENT host (PC) re-implementation of the
 # debounce algorithm. No AVR involved -- fast logic verification that the
@@ -492,9 +524,11 @@ test-symbolic-klee:
 	fi
 
 # Fuse-byte verification: decode the EXACT lfuse/hfuse bytes this Makefile will
-# burn (LFUSE/HFUSE for t13, LFUSE85/HFUSE85 for t85) and assert they match the
-# documented design intent (clock, BOD 2.7V, ISP/RESET preserved, etc). Catches
-# a wrong fuse before it reaches silicon -- invisible to every other test.
+# burn (LFUSE/HFUSE for t13a, LFUSE_X5/HFUSE_X5 for the tinyx5 family) and assert
+# they match the documented design intent (clock, BOD 2.7V, ISP/RESET preserved,
+# etc). Catches a wrong fuse before it reaches silicon -- invisible to every
+# other test. The tinyx5 fuse bytes are identical across ATtiny25/45/85, so the
+# checker's T85_* bytes cover the whole family.
 test-fuses: test/test_fuses
 	./test/test_fuses
 
@@ -505,34 +539,28 @@ test-fuses: test/test_fuses
 test/test_fuses: test/test_fuses.c Makefile
 	$(HOSTCC) $(HOST_CFLAGS) $(SANITIZE) \
 		-DT13_LFUSE=$(LFUSE) -DT13_HFUSE=$(HFUSE) \
-		-DT85_LFUSE=$(LFUSE85) -DT85_HFUSE=$(HFUSE85) \
+		-DT85_LFUSE=$(LFUSE_X5) -DT85_HFUSE=$(HFUSE_X5) \
 		$< -o $@
 
 # simavr integration tests: run the REAL compiled firmware .elf in the
 # instruction-accurate simulator, drive PB0, and assert LED + control-output
-# behavior. One binary per variant (the same harness compiled with the variant's
-# -D selector so it expects that variant's control-output behavior).
+# behavior. One binary per (variant x MCU): the same harness compiled with the
+# variant's -D selector (so it expects that variant's control output) and the
+# MCU's parameters. tinyx5 builds add -DTARGET_TINYX5 to enable the
+# WDT-reset-aware paths simavr can model for that family.
 #
-# Per-variant build + run rules are generated by the template below:
-#   test/test_sim_<v>      ATtiny13a harness   -> run via test-sim-<v>
-#   test/test_sim_<v>_t85  ATtiny85 harness    -> run via test-sim-<v>-t85
-#                          (-DTARGET_T85 selects the WDT-reset-aware paths)
-#   test/test_trace_<v>    VCD waveform builder (-DTRACE)
+# Generated rules:
+#   test/test_sim_<v>         ATtiny13a   -> run via test-sim-<v>
+#   test/test_sim_<v>_t<n>    tinyx5 chip -> run via test-sim-<v>-t<n>
+#   test/test_trace_<v>       VCD waveform builder (-DTRACE, ATtiny13a)
 SIM_DEPS = test/test_sim.c test/model_step.h test/bypass_config_host.h \
            test/bypass_output_host.h bypass_config.h $(FW_HEADERS)
 
-define VARIANT_SIM_RULES
+# $(call VARIANT_SIM_T13,variant)
+define VARIANT_SIM_T13
 test/test_sim_$(1): $$(SIM_DEPS) $(FW_BASE)_$(1).elf
 	$$(HOSTCC) $$(SIM_CFLAGS) $$(SIM_DEFS) -D$$(macro_$(1)) -Itest \
 		-DFW_PATH=\"$(FW_BASE)_$(1).elf\" \
-		test/test_sim.c -o $$@ $$(SIM_LIBS)
-
-test/test_sim_$(1)_t85: $$(SIM_DEPS) $(FW_BASE)_$(1)_t85.elf
-	$$(HOSTCC) $$(SIM_CFLAGS) $$(SIM_DEFS) -D$$(macro_$(1)) -Itest \
-		-DFW_PATH=\"$(FW_BASE)_$(1)_t85.elf\" \
-		-DMCU_NAME=\"attiny85\" \
-		-DF_CPU_HZ=1000000UL \
-		-DTARGET_T85 \
 		test/test_sim.c -o $$@ $$(SIM_LIBS)
 
 test/test_trace_$(1): $$(SIM_DEPS) $(FW_BASE)_$(1).elf
@@ -540,23 +568,44 @@ test/test_trace_$(1): $$(SIM_DEPS) $(FW_BASE)_$(1).elf
 		-DFW_PATH=\"$(FW_BASE)_$(1).elf\" \
 		test/test_sim.c -o $$@ $$(SIM_LIBS)
 
-.PHONY: test-sim-$(1) test-sim-$(1)-t85 test-fault-inject-$(1)
+.PHONY: test-sim-$(1)
 test-sim-$(1): test/test_sim_$(1)
 	@echo "--- sim (ATtiny13a) variant: $(1) ---"
 	./test/test_sim_$(1)
-test-sim-$(1)-t85: test/test_sim_$(1)_t85
-	@echo "--- sim (ATtiny85) variant: $(1) ---"
-	./test/test_sim_$(1)_t85
-test-fault-inject-$(1): test/test_sim_$(1)_t85
-	@echo "--- fault-injection (ATtiny85) variant: $(1) ---"
-	./test/test_sim_$(1)_t85 fault-inject
 endef
-$(foreach v,$(VARIANTS),$(eval $(call VARIANT_SIM_RULES,$(v))))
+$(foreach v,$(VARIANTS),$(eval $(call VARIANT_SIM_T13,$(v))))
 
-# Aggregate targets: run the relevant per-variant target for every variant.
-test-sim:         $(foreach v,$(VARIANTS),test-sim-$(v))
-test-sim-t85:     $(foreach v,$(VARIANTS),test-sim-$(v)-t85)
-test-fault-inject:$(foreach v,$(VARIANTS),test-fault-inject-$(v))
+# $(call VARIANT_SIM_X5,variant,chip-number)
+define VARIANT_SIM_X5
+test/test_sim_$(1)_t$(2): $$(SIM_DEPS) $(FW_BASE)_$(1)_t$(2).elf
+	$$(HOSTCC) $$(SIM_CFLAGS) $$(SIM_DEFS) -D$$(macro_$(1)) -Itest \
+		-DFW_PATH=\"$(FW_BASE)_$(1)_t$(2).elf\" \
+		-DMCU_NAME=\"$$(mmcu_$(2))\" \
+		-DF_CPU_HZ=$$(F_CPU_X5) \
+		-DTARGET_TINYX5 \
+		test/test_sim.c -o $$@ $$(SIM_LIBS)
+
+.PHONY: test-sim-$(1)-t$(2) test-fault-inject-$(1)-t$(2)
+test-sim-$(1)-t$(2): test/test_sim_$(1)_t$(2)
+	@echo "--- sim (ATtiny$(2)) variant: $(1) ---"
+	./test/test_sim_$(1)_t$(2)
+test-fault-inject-$(1)-t$(2): test/test_sim_$(1)_t$(2)
+	@echo "--- fault-injection (ATtiny$(2)) variant: $(1) ---"
+	./test/test_sim_$(1)_t$(2) fault-inject
+endef
+$(foreach v,$(VARIANTS),$(foreach n,$(TINYX5),$(eval $(call VARIANT_SIM_X5,$(v),$(n)))))
+
+# Aggregate run targets.
+# test-sim          : all variants on ATtiny13a
+# test-sim-t<n>     : all variants on tinyx5 chip <n> (e.g. test-sim-t85)
+# test-sim-secondary: all variants on every tinyx5 chip
+# test-fault-inject : all variants x every tinyx5 chip
+test-sim: $(foreach v,$(VARIANTS),test-sim-$(v))
+$(foreach n,$(TINYX5),$(eval test-sim-t$(n): $(foreach v,$(VARIANTS),test-sim-$(v)-t$(n))))
+test-sim-secondary: $(foreach n,$(TINYX5),test-sim-t$(n))
+test-fault-inject: $(foreach v,$(VARIANTS),$(foreach n,$(TINYX5),test-fault-inject-$(v)-t$(n)))
+.PHONY: test-sim test-sim-secondary test-fault-inject \
+        $(foreach n,$(TINYX5),test-sim-t$(n))
 
 # Mutation testing: inject deliberate faults into the PRODUCTION sources
 # (bypass_core.c + the variant driver / bypass_config.h), rebuild, and confirm a
@@ -689,23 +738,27 @@ coverage-clean:
 
 # One-line summary of the most useful targets.
 help:
-	@echo "Variants: $(VARIANTS)  (select one with VARIANT=<name>; default $(VARIANT))"
+	@echo "Variants: $(VARIANTS)  (select with VARIANT=<name>; default $(VARIANT))"
+	@echo "MCUs: ATtiny13a (primary) + tinyx5 family t$(TINYX5)"
 	@echo "Build:"
 	@echo "  all (default)   build ALL ATtiny13a variant firmwares (.hex) + sizes"
-	@echo "  all13 / all85   build all variant firmwares for ATtiny13a / ATtiny85"
-	@echo "  size / size85   print flash/RAM usage for every variant (t13 / t85)"
+	@echo "  all13           build all variant firmwares for ATtiny13a"
+	@echo "  all85 / all45   build all variant firmwares for ATtiny85 / ATtiny45"
+	@echo "  size            print flash/RAM usage for every ATtiny13a variant"
+	@echo "  size85 / size45 print flash/RAM usage for every tinyx5 variant"
 	@echo "Test (each runs across ALL variants):"
-	@echo "  test            FAST full suite -- analyze, model, sim (x3), coverage"
+	@echo "  test            FAST full suite -- analyze, model, sim (all MCUs), coverage"
 	@echo "  test-long       FULL exhaustive suite (minutes); alias: stress"
 	@echo "  test-host       golden-model algorithm tests (host, variant-agnostic)"
 	@echo "  test-model-check exhaustive state-space proof of invariants"
 	@echo "  test-symbolic   exhaustive single-step property proof of step()"
 	@echo "  test-symbolic-klee  same properties under KLEE (if installed)"
-	@echo "  test-fuses      decode + verify the design fuse bytes (t13 + t85)"
+	@echo "  test-fuses      decode + verify the design fuse bytes (t13a + tinyx5)"
 	@echo "  test-sim        real firmware in simavr, all variants (ATtiny13a)"
-	@echo "  test-sim-t85    real firmware in simavr, all variants (ATtiny85)"
-	@echo "  test-sim-<v>    single variant, e.g. test-sim-relay / test-sim-relay-t85"
-	@echo "  test-fault-inject  corrupt state, verify watchdog recovery (t85, all)"
+	@echo "  test-sim-t85 / test-sim-t45  all variants on that tinyx5 chip"
+	@echo "  test-sim-secondary  all variants on every tinyx5 chip"
+	@echo "  test-sim-<v>[-t<n>]  single variant, e.g. test-sim-relay / test-sim-relay-t45"
+	@echo "  test-fault-inject  corrupt state, verify WDT recovery (all variants x tinyx5)"
 	@echo "  test-mutation   inject firmware faults, verify the suite kills them"
 	@echo "  trace           emit bypass_trace.vcd for VARIANT (GTKWave)"
 	@echo "Analysis:"
@@ -713,11 +766,11 @@ help:
 	@echo "  analyze-tidy / analyze-cppcheck / analyze-deep  individual analyzers"
 	@echo "  coverage        human-readable golden-model coverage report"
 	@echo "  coverage-check  fail if coverage < COVERAGE_MIN ($(COVERAGE_MIN)%)"
-	@echo "Hardware (act on VARIANT=$(VARIANT); *85 targets for ATtiny85):"
+	@echo "Hardware (act on VARIANT=$(VARIANT); <n> in {$(TINYX5)} for tinyx5):"
 	@echo "  readfuses       print current fuse bytes (read-only)"
-	@echo "  fuses / fuses85 write design fuse bytes"
-	@echo "  flash / flash85 flash the selected variant's firmware"
-	@echo "  program / program85  fuses + flash (fresh chip)"
+	@echo "  fuses / fuses<n>   write design fuse bytes (t13a / tinyx5)"
+	@echo "  flash / flash<n>   flash the selected variant's firmware"
+	@echo "  program / program<n>  fuses + flash (fresh chip)"
 	@echo "Clean:"
 	@echo "  clean           remove build + test artifacts"
 	@echo "  clean-tests     remove only test binaries"

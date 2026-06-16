@@ -948,9 +948,9 @@ static void test_watchdog_not_tripped_normally(void) {
     CHECK((g_led_changes - before) == 1, "still responsive after long idle");
 }
 
-#ifdef TARGET_T85
-// Watchdog BACKSTOP: verify WDT system reset on ATtiny85 (simavr ATtiny85
-// model supports WDT reset).
+#ifdef TARGET_TINYX5
+// Watchdog BACKSTOP: verify WDT system reset on the tinyx5 family (simavr
+// models the ATtiny25/45/85 watchdog reset).
 //
 // If the timer ISR stops running, the main loop never pets the dog, and the
 // WDT (~250ms) performs a SYSTEM RESET.  The firmware must reinitialize in
@@ -1062,9 +1062,9 @@ static void test_watchdog_backstop_documented(void) {
 // Register corruption recovery: corrupt DDRB/PORTB to trigger the firmware's
 // sanity-check force_wdt_reset() path.
 //
-// On ATtiny85, simavr models WDT reset, so the firmware recovers and
-// reinitializes in BYPASS.  On ATtiny13, the WDT is not fully modeled, so the
-// weaker property (CPU enters stuck state without wedging simavr) is checked.
+// On the tinyx5 family, simavr models WDT reset, so the firmware recovers and
+// reinitializes in BYPASS.  On the ATtiny13a, the WDT is not fully modeled, so
+// the weaker property (CPU enters stuck state without wedging simavr) is checked.
 static void test_register_corruption_recovery(void) {
     if (sim_reset(0) != 0) { g_failures++; return; }
 
@@ -1076,8 +1076,8 @@ static void test_register_corruption_recovery(void) {
     avr_core_watch_write(g_avr, DDRB_MEM_ADDR,
                          g_avr->data[DDRB_MEM_ADDR] & ~(1 << LED_PIN));
 
-#ifdef TARGET_T85
-    // ATtiny85: WDT reset is emulated.  Firmware recovers via reset.
+#ifdef TARGET_TINYX5
+    // tinyx5: WDT reset is emulated.  Firmware recovers via reset.
     // The LED returning to dark proves the MCU reset and init() ran.
     run_ms(500);
     CHECK(g_led_level == 0,
@@ -1109,16 +1109,16 @@ static void test_register_corruption_recovery(void) {
 //     footswitch pullup bit cleared in PORTB   -> lost input pullup
 //   plus the switch() default: (program_state_ out of enum range).
 //
-// On ATtiny85 simavr models the WDT system reset, so we assert full recovery
-// to BYPASS. On ATtiny13 the WDT reset is not modeled, so we assert the weaker
-// property that the firmware wedges into the cli()+busy-loop (no further sleep)
-// -- the same approach the existing register-corruption test uses.
+// On the tinyx5 family simavr models the WDT system reset, so we assert full
+// recovery to BYPASS. On the ATtiny13a the WDT reset is not modeled, so we
+// assert the weaker property that the firmware wedges into the cli()+busy-loop
+// (no further sleep) -- the same approach the register-corruption test uses.
 
 // Shared helper: after injecting a fault, verify the firmware reacts.
-//   t85: WDT reset fires -> firmware reinits -> LED dark (BYPASS).
-//   t13: firmware enters force_wdt_reset() cli/busy loop -> no more sleeps.
+//   tinyx5: WDT reset fires -> firmware reinits -> LED dark (BYPASS).
+//   t13a  : firmware enters force_wdt_reset() cli/busy loop -> no more sleeps.
 static void expect_fault_response(const char *what) {
-#ifdef TARGET_T85
+#ifdef TARGET_TINYX5
     run_ms(500); // > WDT 250ms timeout
     CHECK(g_led_level == 0,
           "fault-inject [%s]: WDT reset recovered, LED dark (reinit BYPASS)",
@@ -1167,12 +1167,12 @@ static void test_fault_inject_effect_state(void) {
 //
 // NOTE: the timer ISR rewrites this flag to TIMER_ISR_CALLED every 1ms, so a
 // corrupted value only survives long enough to be seen by main() if main()
-// happens to read it within that window. On the ATtiny85 build the WDT reset
+// happens to read it within that window. On the tinyx5 build the WDT reset
 // gives us a deterministic signal once main() catches it, so we retry across
-// several ticks. On the ATtiny13 build (no modeled WDT reset) the catch is a
+// several ticks. On the ATtiny13a build (no modeled WDT reset) the catch is a
 // tight, non-deterministic race that we cannot reliably win from the test
-// harness, so this particular injection is t85-only.
-#ifdef TARGET_T85
+// harness, so this particular injection is tinyx5-only.
+#ifdef TARGET_TINYX5
 static void test_fault_inject_timer_isr_flag(void) {
     if (sim_reset(0) != 0) { g_failures++; return; }
     CHECK(g_addr_timer_isr != 0,
@@ -1227,7 +1227,7 @@ static void test_fault_inject_control_ddr(void) {
 static void run_fault_injection_suite(void) {
     test_fault_inject_program_state();
     test_fault_inject_effect_state();
-#ifdef TARGET_T85
+#ifdef TARGET_TINYX5
     test_fault_inject_timer_isr_flag();
 #endif
     test_fault_inject_lost_pullup();
@@ -1643,7 +1643,7 @@ int main(int argc, char **argv) {
     return rc;
 #else
     // `test_sim fault-inject` runs ONLY the fault-injection suite (used by the
-    // Makefile `test-fault-inject` target against the ATtiny85 build). With no
+    // Makefile `test-fault-inject` target against the tinyx5 builds). With no
     // argument, run the full suite, which includes fault injection.
     int fault_only = (argc > 1 && strcmp(argv[1], "fault-inject") == 0);
 
@@ -1673,7 +1673,7 @@ int main(int argc, char **argv) {
     test_lockstep_cosim();
     test_enters_idle_sleep();
     test_watchdog_not_tripped_normally();
-#ifdef TARGET_T85
+#ifdef TARGET_TINYX5
     test_watchdog_backstop_reset();
     test_watchdog_timeout_within_bound();
 #else
