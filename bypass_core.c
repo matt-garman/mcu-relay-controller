@@ -3,41 +3,6 @@
 // license information.
 
 
-// ATtiny13a pinout
-//                                         +----+
-// (PCINT5/~RESET/ADC0/dW)        PB5 pin1-|    |-pin8 VCC
-// (PCINT3/XTAL1/CLKI/~OC1B/ADC3) PB3 pin2-|    |-pin7 PB2 (SCK/USCK/SCL/ADC1/T0/INT0/PCINT2)
-// (PCINT4/XTAL2/CLKO/OC1B/ADC2)  PB4 pin3-|    |-pin6 PB1 (MISO/DO/AIN1/OC0B/OC1A/PCINT1)
-//                                GND pin4-|    |-pin5 PB0 (MOSI/DI/SDA/AIN0/OC0A/~OC1A/AREF/PCINT0)
-//                                         +----+
-//
-// 
-// PB0 => momentary switch : input; internal pullup enabled + external 10k pullup
-// PB1 => status indicator LED : output
-// PB2 => 4053 control : output
-//
-//
-// Optimal footswitch wiring for EMI/RFI resiliency:
-// lead 1: GND
-// lead 2:
-//   - TVS diode to ground (cathode=signal, annode=GND)
-//   - series ferrite bead
-//   - series 1k resistor ("a" side to FB, "b" side to "node b")
-//   - 22nF capacitor "node b" to ground (close to MCU GPIO pin)
-//   - 10k pullup resistor "node b" to VCC
-//
-//                                      VCC(5v)
-//                                         |
-//                                       [10k]
-//                                         |
-// FOOTSW_PIN -----+-----[FB]-----[1k]-----+-----GPIO_PIN
-//                 |                       |
-//              [TVS-K]                 [22nF]
-//              [TVS-A]                    |
-//                 |                       |
-//                GND                     GND
-//         
-//
 // designed for avrtools (standard avr-gcc, avr-libc, avrdude toolchain)
 //
 // compile with:
@@ -70,6 +35,7 @@
 //
 
 #include "bypass_config.h"
+#include "bypass_types.h"
 
 #include <assert.h>        // For static_assert()
 #include <avr/io.h>        // Defines register and bit names
@@ -78,40 +44,6 @@
 #include <avr/power.h>     // clock_prescale_set(), power_all_disable()
 #include <avr/sleep.h>     // sleep states
 #include <avr/interrupt.h> // ISR() interrupt service routine macro
-
-
-//////////////////////////////////////////////////////////////////////////////
-// TYPES
-//////////////////////////////////////////////////////////////////////////////
-
-// possible high-level states of the debounce/bypass scheme
-typedef enum {
-    // 1ms footswitch pin sampling, waiting for footswitch to be
-    // press-debounced (i.e. footswitch considered open/released in
-    // this state)
-    PRESS_DEBOUNCE_WAIT = 0,
-
-    // 1ms footswitch pin sampling, footswitch was previously
-    // confirmed debounce-pressed, now waiting for footswitch to be
-    // release-debounced (i.e. footswitch considered closed/pressed
-    // in this state)
-    RELEASE_DEBOUNCE_WAIT,
-} program_state_t;
-
-
-// a flag to keep track of the effect/bypass state
-typedef enum {
-    BYPASS = 0,
-    ENGAGED,
-} effect_state_t;
-
-// a flag to "multiplex" the WDT across the timer ISR and main()
-// loop
-typedef enum {
-    TIMER_ISR_CALLED = 0,
-    TIMER_ISR_NOT_CALLED,
-} timer_isr_called_t;
-
 
 
 //////////////////////////////////////////////////////////////////////////////
@@ -153,103 +85,11 @@ __attribute__((noreturn)) static void force_wdt_reset(void) {
 static void led_pin_set_high(void) { PORTB |=  (1 << LED_PIN); }
 static void led_pin_set_low(void)  { PORTB &= (uint8_t)~(1 << LED_PIN); }
 
-static void pin_set_high(uint8_t const pin) { PORTB |=  (uint8_t)(1 << pin); }
-static void pin_set_low(uint8_t const pin)  { PORTB &= (uint8_t)~(1 << pin); }
 
-
-#if defined(CD4053_SIMPLE)
-// CD4053_PIN high -> mosfet on  -> 4053 control pins low
-// CD4053_PIN low  -> mosfet off -> 4053 control pins high
-
-static void set_bypass_state(void) {
-    effect_state_ = BYPASS;   // set effect state to BYPASS
-    led_pin_set_low();        // dark status LED
-    pin_set_low(CD4053_PIN);  // set CD4053 pin low
-}
-
-static void set_engaged_state(void) {
-    effect_state_ = ENGAGED;  // set effect state to ENGAGED
-    led_pin_set_high();       // light status LED
-    pin_set_high(CD4053_PIN); // set CD4053 pin high
-}
-
-// assert critical pin directions hold: LED & CD4053 outputs, footswitch input
-static uint8_t is_sanity_check_failed(void) {
-    return ((DDRB & ((1 << LED_PIN) | (1 << CD4053_PIN))) !=
-            ((1 << LED_PIN) | (1 << CD4053_PIN)));
-}
-
-#elif defined(CD4053_WITH_MUTE)
-
-static void set_bypass_state(void) {
-    effect_state_ = BYPASS;   // set effect state to BYPASS
-    led_pin_set_low();        // dark status LED
-
-    pin_set_high(CD4053_CTL1); // re-assert previous ENGAGED state
-    pin_set_high(CD4053_CTL2);
-
-    pin_set_low(CD4053_CTL1); // MUTE
-    _delay_ms(CD4053_MUTE_DELAY_MS); // busy sleep for pre-switch mute time
-
-    pin_set_low(CD4053_CTL2); // un-mute in BYPASS state
-}
-
-static void set_engaged_state(void) {
-    effect_state_ = ENGAGED;  // set effect state to ENGAGED
-    led_pin_set_high();       // light status LED
-
-    pin_set_low(CD4053_CTL1); // re-assert previous BYPASS state
-    pin_set_low(CD4053_CTL2);
-
-    pin_set_high(CD4053_CTL2); // MUTE
-    _delay_ms(CD4053_MUTE_DELAY_MS); // busy sleep for pre-switch mute time
-
-    pin_set_high(CD4053_CTL1); // un-mute in ENGAGED state
-}
-
-static uint8_t is_sanity_check_failed(void) {
-    return 0; // FIXME
-}
-
-#elif defined(TQ2_L2_5V_RELAY)
-
-// always force both coils low
-static void set_relay_coils_low(void) {
-    pin_set_low(RELAY_RESET_PIN); }
-    pin_set_low(RELAY_SET_PIN); }
-}
-
-static void set_bypass_state(void) {
-    set_relay_coils_low();
-
-    effect_state_ = BYPASS;   // set effect state to BYPASS
-    led_pin_set_low();        // dark status LED
-
-    pin_set_high(RELAY_RESET_PIN); // pulse set coil
-    _delay_ms(TQ2_L2_5V_PULSE_MS); // busy sleep for coil pulse time
-
-    set_relay_coils_low();
-}
-
-static void set_engaged_state(void) {
-    set_relay_coils_low();
-
-    effect_state_ = ENGAGED;  // set effect state to ENGAGED
-    led_pin_set_high();       // light status LED
-
-    pin_set_high(RELAY_SET_PIN);   // pulse set coil
-    _delay_ms(TQ2_L2_5V_PULSE_MS); // busy sleep for coil pulse time
-
-    set_relay_coils_low();
-}
-
-static uint8_t is_sanity_check_failed(void) {
-    return 0; // FIXME
-}
-
-#else
-#  error "Need to define CD4053_SIMPLE, CD4053_WITH_MUTE, or TQ2_L2_5V_RELAY"
-#endif
+// - set a GPIO pin high or low
+// - assumes pin was previously configured as output
+void pin_set_high(uint8_t const pin) { PORTB |=  (uint8_t)(1 << pin); }
+void pin_set_low(uint8_t const pin)  { PORTB &= (uint8_t)~(1 << pin); }
 
 
 // read FOOTSW_PIN to determine if it's high or low
