@@ -426,6 +426,7 @@ of unexpected error, bit flip, etc.
 === State Machine
 
 Saturating integrator (ISR, every 1ms, runs in both states):
+
   if footswitch pin low  (switch closed):  if counter < RELEASE_THRESH: counter++
   if footswitch pin high (switch open):    if counter > 0             : counter--
 
