@@ -18,9 +18,9 @@
 //   ATtiny13/a    (F_CPU=1.2MHz): 8 * (149 + 1) / 1200000  -> exactly 1ms
 //   ATtiny25/45/85 (F_CPU=1.0MHz): 8 * (124 + 1) / 1000000  -> exactly 1ms
 #if defined(BYPASS_MCU_TINYX5)
-#  define TIMER0_OCR0A_1MS (124)
+#  define TIMER0_OCR0A_1MS (124U)
 #else // ATtiny13a
-#  define TIMER0_OCR0A_1MS (149)
+#  define TIMER0_OCR0A_1MS (149U)
 #endif
 
 
@@ -52,7 +52,7 @@
 
 // number of HIGH PB0/footswitch pin reads to be considered 
 // release-debounced, i.e. the "lock-out" period
-#define RELEASE_THRESH (25)
+#define RELEASE_THRESH (25U)
 
 // number of LOW PB0/footswitch pin reads to be considered
 // press-debounced
@@ -70,7 +70,7 @@
 // to bias the debounce time after the actual action (effect
 // engage/bypass) to balance responsiveness with robust switch
 // de-bouncing
-#define PRESSED_THRESH (8)
+#define PRESSED_THRESH (8U)
 
 
 #endif // BYPASS_CONFIG_H__

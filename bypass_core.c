@@ -48,6 +48,19 @@
 #include <avr/interrupt.h> // ISR() interrupt service routine macro
 
 
+// Upper bound for values stored in the uint8_t debounce counter, as an
+// UNSIGNED constant. We deliberately do NOT use <stdint.h>'s UINT8_MAX: by C
+// integer-promotion rules a uint8_t promotes to (signed) int, so UINT8_MAX
+// itself has type int. Comparing it to our unsigned thresholds is an
+// essential-type-category mix (MISRA 10.4), and its expansion (0x7f*2+1) also
+// trips MISRA 12.1. A plain unsigned literal means the same thing and avoids
+// both -- see MISRA_COMPLIANCE.md.
+//
+// Loosely speaking: MISRA-C compliant UINT8_MAX
+#define DEBOUNCE_COUNTER_MAX (255U)
+
+
+
 //////////////////////////////////////////////////////////////////////////////
 // PROGRAM GLOBALS
 //////////////////////////////////////////////////////////////////////////////
@@ -111,11 +124,11 @@ ISR(TIM0_COMPA_vect) {
     // saturating integrator update
     // footswitch pin zero (low) == switch closed
     // footswitch pin one (high) == switch open
-    if (0 == digital_read_footswitch_pin()) {
+    if (0U == digital_read_footswitch_pin()) {
         if (debounce_counter_ < RELEASE_THRESH) { ++debounce_counter_; }
     }
     else { // footswitch pin is high -> switch open
-        if (debounce_counter_ > 0) { --debounce_counter_; }
+        if (debounce_counter_ > 0U) { --debounce_counter_; }
     }
 }
 
@@ -125,15 +138,15 @@ ISR(TIM0_COMPA_vect) {
 static void init(void) {
 
     // compile-time sanity checks
-    static_assert(RELEASE_THRESH < UINT8_MAX,                   "RELEASE_THRESH >= UINT8_MAX");
-    static_assert(RELEASE_THRESH > 0,                           "RELEASE_THRESH <= 0");
-    static_assert(RELEASE_THRESH > PRESSED_THRESH,              "RELEASE_THRESH <= PRESSED_THRESH");
-    static_assert(PRESSED_THRESH < UINT8_MAX,                   "PRESSED_THRESH >= UINT8_MAX");
-    static_assert(PRESSED_THRESH > 0,                           "PRESSED_THRESH <= 0");
-    static_assert(1 == sizeof(effect_state_t),                  "sizeof(effect_state_t) != 1, use -fshort-enums");
-    static_assert(1 == sizeof(program_state_t),                 "sizeof(program_state_t) != 1, use -fshort-enums");
-    static_assert(1 == sizeof(timer_isr_called_t),              "sizeof(timer_isr_called_t) != 1, use -fshort-enums");
-    static_assert(1000 == (F_CPU / 8 / (TIMER0_OCR0A_1MS + 1)), "OCR0A/F_CPU mismatch, ISR won't be on 1ms timer");
+    static_assert(RELEASE_THRESH < DEBOUNCE_COUNTER_MAX,           "RELEASE_THRESH >= UINT8_MAX");
+    static_assert(RELEASE_THRESH > 0U,                             "RELEASE_THRESH <= 0");
+    static_assert(RELEASE_THRESH > PRESSED_THRESH,                 "RELEASE_THRESH <= PRESSED_THRESH");
+    static_assert(PRESSED_THRESH < DEBOUNCE_COUNTER_MAX,           "PRESSED_THRESH >= UINT8_MAX");
+    static_assert(PRESSED_THRESH > 0U,                             "PRESSED_THRESH <= 0");
+    static_assert(1U == sizeof(effect_state_t),                    "sizeof(effect_state_t) != 1, use -fshort-enums");
+    static_assert(1U == sizeof(program_state_t),                   "sizeof(program_state_t) != 1, use -fshort-enums");
+    static_assert(1U == sizeof(timer_isr_called_t),                "sizeof(timer_isr_called_t) != 1, use -fshort-enums");
+    static_assert(1000U == (F_CPU / 8U / (TIMER0_OCR0A_1MS + 1U)), "OCR0A/F_CPU mismatch, ISR won't be on 1ms timer");
 
     // disable interrupts (don't want init() to be interrupted); will
     // re-enable at end of function
@@ -204,14 +217,14 @@ static void init(void) {
 
     // special case: footswitch pressed during power-on: keep in bypass state,
     // but use timer + interrupt function to wait for release
-    if (0 == digital_read_footswitch_pin()) {
+    if (0U == digital_read_footswitch_pin()) {
         program_state_ = RELEASE_DEBOUNCE_WAIT;
         debounce_counter_ = RELEASE_THRESH;
     }
     // typical startup case: assume switch is not pressed
     else {
         program_state_ = PRESS_DEBOUNCE_WAIT;
-        debounce_counter_ = 0;
+        debounce_counter_ = 0U;
     }
 
     // ISR-main() WDT handshake: let ISR set this to called when timer is
@@ -328,7 +341,7 @@ __attribute__((OS_main)) int main(void) {
             //       human resolution)
             case RELEASE_DEBOUNCE_WAIT:
                 {
-                    if (0 == debounce_counter_) {
+                    if (0U == debounce_counter_) {
                         program_state_ = PRESS_DEBOUNCE_WAIT;
                     }
                     // Same AVR lost-wakeup guarantee: pending ISR aborts SLEEP

@@ -246,6 +246,52 @@ CPPCHECK_FLAGS     ?= --enable=warning,style,performance,portability \
                       -D__AVR__ -D__AVR_ATtiny13A__ -DF_CPU=$(F_CPU) \
                       $(if $(AVR_LIBC_INCLUDE),-I$(AVR_LIBC_INCLUDE))
 
+# --- MISRA-C:2012 analysis (cppcheck misra addon) ----------------------------
+# Same cppcheck binary, driven by its bundled misra.py addon. Three committed
+# support files make the run readable and reproducible:
+#   test/misra.json           - addon config; points misra.py at the rule texts
+#   test/misra_rules.txt      - SHORT PARAPHRASES of each rule (cppcheck ships
+#                               no rule texts -- they are copyrighted -- so
+#                               without this every finding is an opaque number)
+#   test/misra_suppressions.txt - documented per-file deviations (each maps to a
+#                               "D-n" record in MISRA_COMPLIANCE.md)
+# Notes:
+#   - PYTHONWARNINGS=ignore silences a DeprecationWarning from misra.py under
+#     Python 3.12+; cppcheck treats ANY addon stderr as a hard failure.
+#   - avr-libc / avr-gcc system headers are outside the compliance boundary, so
+#     their violations are suppressed by path (the '*:DIR/*' globs are quoted in
+#     the recipe to keep the shell from expanding them).
+#   - cppcheck must run from the project root so the relative addon/rule paths
+#     resolve in the addon subprocess; `make` already does.
+MISRA_ADDON        ?= test/misra.json
+MISRA_RULES        ?= test/misra_rules.txt
+MISRA_SUPPRESS     ?= test/misra_suppressions.txt
+
+# Robust avr-libc include discovery for the MISRA run. The shared
+# AVR_LIBC_INCLUDE (above) is derived from `$(CC) -print-file-name=avr/io.h`,
+# which on this toolchain returns a bare name -- avr-libc's headers live outside
+# avr-gcc's own dirs -- so it can resolve to a non-path. MISRA's value rules
+# (10.x essential type, 11.x pointer/integer) are meaningless without the real
+# register headers, so we discover the directory from the preprocessor's actual
+# search path and fall back to the shared variable only if that fails.
+MISRA_AVR_INCLUDE  := $(shell echo | $(CC) -xc -E -Wp,-v - 2>&1 | grep -oE '^ /[^ ]+' | tr -d ' ' | while read d; do if [ -f "$$d/avr/io.h" ]; then realpath "$$d" 2>/dev/null || echo "$$d"; break; fi; done)
+ifeq ($(MISRA_AVR_INCLUDE),)
+MISRA_AVR_INCLUDE  := $(AVR_LIBC_INCLUDE)
+endif
+
+# Base flags shared by the gating (analyze-misra) and report (analyze-misra-
+# report) targets. The documented-deviation waiver (--suppressions-list) is
+# deliberately NOT here: the gating target adds it (plus --error-exitcode) to
+# fail on un-waived findings, while the report target omits it to show the full
+# inventory including the waived deviations.
+MISRA_CPPCHECK_FLAGS ?= --addon=$(MISRA_ADDON) --std=c11 --platform=avr8 \
+                      --enable=style --inline-suppr \
+                      --suppress=missingIncludeSystem \
+                      --suppress=unmatchedSuppression \
+                      $(if $(MISRA_AVR_INCLUDE),'--suppress=*:$(MISRA_AVR_INCLUDE)/*' -I$(MISRA_AVR_INCLUDE)) \
+                      $(if $(AVR_GCC_INCLUDE),'--suppress=*:$(AVR_GCC_INCLUDE)/*' -I$(AVR_GCC_INCLUDE)) \
+                      -D__AVR__ -D__AVR_ATtiny13A__ -DF_CPU=$(F_CPU)
+
 # Clang static analyzer (deep symbolic-execution path analysis). This is the
 # stand-in for `gcc -fanalyzer`: the system avr-gcc (7.3.0) predates -fanalyzer
 # (which needs GCC 10+), but clang's analyzer understands -target avr and the
@@ -387,6 +433,7 @@ clean:
 		test/test_symbolic.bc \
 		bypass_trace.vcd $(FW_BASE).plist \
 		$(TOOLCHAIN_STAMP)
+	rm -f *.dump *.ctu-info cppcheck-addon-ctu-file-list*
 	rm -rf test/klee-out-* test/klee-last
 
 # ============================================================================
@@ -633,10 +680,12 @@ trace: test/test_trace_$(VARIANT)
 #   - clang --analyze : deep symbolic-execution path analysis (analyze-deep),
 #                       the stand-in for `gcc -fanalyzer` since the installed
 #                       avr-gcc (7.3) predates it.
+#   - cppcheck misra : MISRA-C:2012 compliance gate (analyze-misra), clean
+#                      except for the documented deviations in MISRA_COMPLIANCE.md
 # -Wconversion is already enforced by the normal build (CFLAGS); these targets
 # focus on deeper flow/lint analysis.
-analyze: analyze-tidy analyze-cppcheck analyze-deep
-	@echo "=== static analysis (clang-tidy + cppcheck + clang-analyzer) clean ==="
+analyze: analyze-tidy analyze-cppcheck analyze-deep analyze-misra
+	@echo "=== static analysis (clang-tidy + cppcheck + clang-analyzer + MISRA) clean ==="
 
 # clang-tidy (or whatever ANALYZE_CMD points at). Falls back to avr-gcc
 # -fanalyzer if a NEWER avr-gcc that supports it is ever installed; otherwise
@@ -688,6 +737,74 @@ analyze-deep: $(FW_SOURCES) $(FW_HEADERS)
 		echo "No deep analyzer available (need clang or avr-gcc>=10 with -fanalyzer)."; \
 		exit 1; \
 	fi
+
+# MISRA-C:2012 compliance analysis (cppcheck misra addon). Runs over every
+# firmware TU, each under a representative variant -D: the core and the
+# CD4053-simple driver under the default VARIANT's macro, the mute and relay
+# drivers under their own. Findings are rule-labeled via test/misra_rules.txt;
+# avr-libc/avr-gcc system-header findings are excluded (compliance boundary).
+#
+# GATING: fails the build on any finding NOT covered by a documented deviation
+# in test/misra_suppressions.txt (each justified in MISRA_COMPLIANCE.md). The
+# --suppressions-list waives those; --error-exitcode=2 makes cppcheck exit
+# non-zero on anything left. Part of `analyze` -> `make test`.
+.PHONY: analyze-misra
+analyze-misra: $(FW_SOURCES) $(FW_HEADERS) $(MISRA_ADDON) $(MISRA_RULES) $(MISRA_SUPPRESS)
+	@if ! command -v $(CPPCHECK) >/dev/null 2>&1; then \
+		echo "cppcheck not installed; skipping MISRA analysis"; exit 0; \
+	fi; \
+	if ! command -v python3 >/dev/null 2>&1; then \
+		echo "python3 not found (required by the cppcheck misra addon); skipping"; exit 0; \
+	fi; \
+	echo "MISRA-C:2012 analysis ($(CPPCHECK) + misra addon)"; \
+	rc=0; out=`mktemp`; \
+	for f in $(FW_SOURCES); do \
+		case $$f in \
+			*cd4053_with_mute*) m=CD4053_WITH_MUTE ;; \
+			*tq2_l2_5v_relay*)  m=TQ2_L2_5V_RELAY ;; \
+			*)                  m=$(macro_$(VARIANT)) ;; \
+		esac; \
+		PYTHONWARNINGS=ignore $(CPPCHECK) $(MISRA_CPPCHECK_FLAGS) \
+			--suppressions-list=$(MISRA_SUPPRESS) --error-exitcode=2 \
+			-D$$m $$f 2>>$$out || rc=1; \
+	done; \
+	if [ $$rc -ne 0 ]; then \
+		echo "MISRA findings NOT covered by a documented deviation:"; \
+		grep -E "misra-c2012" $$out || true; \
+		echo ""; \
+		echo "Fix it, or (if genuinely unavoidable) add a per-file entry to"; \
+		echo "$(MISRA_SUPPRESS) with a matching record in MISRA_COMPLIANCE.md."; \
+		echo "Run 'make analyze-misra-report' to see the full inventory."; \
+		rm -f $$out *.dump *.ctu-info cppcheck-addon-ctu-file-list*; \
+		exit 1; \
+	fi; \
+	rm -f $$out *.dump *.ctu-info cppcheck-addon-ctu-file-list*; \
+	echo "MISRA-C:2012: clean (documented deviations waived per MISRA_COMPLIANCE.md)"
+
+# Report-only companion to analyze-misra: shows the FULL inventory, INCLUDING
+# the waived deviations (it omits --suppressions-list). Never fails the build.
+# Use it when reviewing or maintaining MISRA_COMPLIANCE.md.
+.PHONY: analyze-misra-report
+analyze-misra-report: $(FW_SOURCES) $(FW_HEADERS) $(MISRA_ADDON) $(MISRA_RULES)
+	@if ! command -v $(CPPCHECK) >/dev/null 2>&1 || ! command -v python3 >/dev/null 2>&1; then \
+		echo "cppcheck and/or python3 not available; skipping MISRA report"; exit 0; \
+	fi; \
+	echo "MISRA-C:2012 full inventory (report-only, includes waived deviations)"; \
+	out=`mktemp`; \
+	for f in $(FW_SOURCES); do \
+		case $$f in \
+			*cd4053_with_mute*) m=CD4053_WITH_MUTE ;; \
+			*tq2_l2_5v_relay*)  m=TQ2_L2_5V_RELAY ;; \
+			*)                  m=$(macro_$(VARIANT)) ;; \
+		esac; \
+		echo "  --- $$f  (-D$$m) ---"; \
+		PYTHONWARNINGS=ignore $(CPPCHECK) $(MISRA_CPPCHECK_FLAGS) -D$$m $$f 2>&1 \
+			| grep -E "misra-c2012" | tee -a $$out || true; \
+	done; \
+	echo "--- summary: findings per rule ---"; \
+	grep -oE "misra-c2012-[0-9.]+" $$out | sort | uniq -c | sort -rn || true; \
+	echo "--- total: `grep -cE misra-c2012 $$out` (all waived per MISRA_COMPLIANCE.md unless noted) ---"; \
+	rm -f $$out *.dump *.ctu-info cppcheck-addon-ctu-file-list*
 
 # Where coverage artifacts are written.
 COVERAGE_DIR = coverage
@@ -764,6 +881,8 @@ help:
 	@echo "Analysis:"
 	@echo "  analyze         static analysis of core + all drivers (3 analyzers)"
 	@echo "  analyze-tidy / analyze-cppcheck / analyze-deep  individual analyzers"
+	@echo "  analyze-misra   MISRA-C:2012 gate (cppcheck misra addon; see MISRA_COMPLIANCE.md)"
+	@echo "  analyze-misra-report  full MISRA inventory incl. waived deviations (report-only)"
 	@echo "  coverage        human-readable golden-model coverage report"
 	@echo "  coverage-check  fail if coverage < COVERAGE_MIN ($(COVERAGE_MIN)%)"
 	@echo "Hardware (act on VARIANT=$(VARIANT); <n> in {$(TINYX5)} for tinyx5):"

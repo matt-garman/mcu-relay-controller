@@ -69,7 +69,10 @@ static int g_checks = 0;
 } while (0)
 
 // Dense index for a state. Counter range is 0..RELEASE_THRESH inclusive.
-#define COUNTER_VALUES (RELEASE_THRESH + 1)
+// RELEASE_THRESH is unsigned in the firmware config (a count is non-negative);
+// cast to int here so this file's signed index/loop arithmetic stays signed and
+// does not trip -Werror=sign-conversion/sign-compare.
+#define COUNTER_VALUES ((int)RELEASE_THRESH + 1)
 #define NUM_STATES     (2 * 2 * COUNTER_VALUES)
 
 static int state_index(state_t s) {
@@ -167,7 +170,7 @@ static void verify_lockout_requires_full_release(void) {
     // From any RELEASE_DEBOUNCE_WAIT state, the ONLY transition back to
     // PRESS_DEBOUNCE_WAIT requires debounce_counter == 0 after the ISR update.
     for (uint8_t es = 0; es <= ENGAGED; ++es) {
-        for (int dc = 0; dc <= RELEASE_THRESH; ++dc) {
+        for (int dc = 0; dc <= (int)RELEASE_THRESH; ++dc) {
             state_t s = { RELEASE_DEBOUNCE_WAIT, es, (uint8_t)dc };
             for (int bit = 0; bit < 2; ++bit) {
                 step_result_t r = step(s, bit);
@@ -193,7 +196,7 @@ static void verify_release_liveness(void) {
 
     for (uint8_t ps = 0; ps <= RELEASE_DEBOUNCE_WAIT; ++ps) {
         for (uint8_t es = 0; es <= ENGAGED; ++es) {
-            for (int dc = 0; dc <= RELEASE_THRESH; ++dc) {
+            for (int dc = 0; dc <= (int)RELEASE_THRESH; ++dc) {
                 state_t s = { ps, es, (uint8_t)dc };
                 int reached = 0;
                 int toggles = 0;

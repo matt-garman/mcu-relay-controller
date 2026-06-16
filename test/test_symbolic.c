@@ -191,7 +191,7 @@ int main(void) {
     long combos = 0;
     for (int ps = 0; ps <= RELEASE_DEBOUNCE_WAIT; ++ps) {
         for (int es = 0; es <= ENGAGED; ++es) {
-            for (int dc = 0; dc <= RELEASE_THRESH; ++dc) {
+            for (int dc = 0; dc <= (int)RELEASE_THRESH; ++dc) {
                 for (int in = 0; in <= 1; ++in) {
                     state_t s = { (uint8_t)ps, (uint8_t)es, (uint8_t)dc };
                     check_step_properties(s, in);

@@ -1,0 +1,41 @@
+# cppcheck suppressions for the MISRA-C:2012 analysis (make analyze-misra).
+
+# This file holds DOCUMENTED, PROJECT-SPECIFIC deviations: MISRA rules we
+# knowingly do not satisfy in our own source. Every entry maps to a numbered
+# deviation record ("D-n") in MISRA_COMPLIANCE.md, which carries the rationale.
+# A suppression here without a matching D-record in that document is a defect --
+# the whole point of MISRA compliance is that every deviation is justified.
+
+# Scope: suppressions are PER FILE (errorId:filename), not project-wide. A new
+# instance of one of these rules in a NEW file therefore still surfaces and
+# fails `make analyze-misra`, forcing a conscious review + a new deviation
+# rather than silently inheriting a blanket waiver.
+
+# Out of scope (handled on the cppcheck command line in the Makefile, not here):
+# violations inside the avr-libc / avr-gcc system headers -- the toolchain
+# library is outside this project's compliance boundary.
+
+# (cppcheck parses a line that is exactly "#" as a malformed suppression, so
+# blank separator lines below are left empty rather than commented.)
+
+# --- D-1: hardware register access (Rules 11.4, 10.1, 10.8) ------------------
+# Reading/writing AVR I/O registers through avr-libc's _SFR_* macros inherently
+# converts an integer address to a volatile pointer (11.4) and performs bit
+# operations / composite casts in register read-modify-write (10.1, 10.8).
+# Unavoidable for bare-metal AVR. See MISRA_COMPLIANCE.md D-1.
+misra-c2012-11.4:bypass_core.c
+misra-c2012-11.4:bypass_output_cd4053_simple.c
+misra-c2012-11.4:bypass_output_cd4053_with_mute.c
+misra-c2012-11.4:bypass_output_tq2_l2_5v_relay.c
+misra-c2012-10.1:bypass_core.c
+misra-c2012-10.1:bypass_output_cd4053_simple.c
+misra-c2012-10.1:bypass_output_cd4053_with_mute.c
+misra-c2012-10.1:bypass_output_tq2_l2_5v_relay.c
+misra-c2012-10.8:bypass_core.c
+
+# --- D-2: cross-translation-unit shared pin macros (Rule 2.5) ----------------
+# FOOTSW_PIN / LED_PIN are defined once in the shared bypass_output_common.h but
+# are not referenced by the output-driver translation units (only by the core).
+# cppcheck analyzes each TU independently, so it reports them as "unused" when
+# checking a driver. They are not dead code. See MISRA_COMPLIANCE.md D-2.
+misra-c2012-2.5:bypass_output_common.h

@@ -1,0 +1,90 @@
+MISRA-C:2012 rule summaries for cppcheck's misra addon.
+
+cppcheck does NOT ship the official MISRA rule texts: the wording of the
+guidelines is copyrighted by the MISRA Consortium and cannot be redistributed.
+Without a rule-texts file the addon prints "misra violation (use --rule-texts
+=<file> to get proper output)" for every finding, which hides which guideline
+was hit.
+
+This file supplies a SHORT PARAPHRASE of each rule we encounter (written in our
+own words, not copied from the standard) purely so the analyzer output is
+self-describing. It is NOT a substitute for the MISRA-C:2012 document; consult
+the official standard for the authoritative rule text, rationale, exceptions,
+and amplification. Each entry's "Required/Advisory/Mandatory" category matches
+the published classification.
+
+Format notes (enforced by the addon's parser, misra.py loadRuleTexts):
+  - parsing starts only at the summary-marker line below and stops at the
+    end-marker line, so this preamble is ignored. (Those two marker phrases are
+    deliberately NOT spelled out here: the parser scans every line, including
+    this preamble, so repeating them above the real markers would trip its
+    state machine early.)
+  - each rule text must begin with a capital letter (the parser's first-line
+    pattern is ^[#A-Z]); continuation lines may start lowercase.
+
+Appendix A Summary of guidelines
+
+Rule 2.5 Advisory
+A project should not contain unused macro definitions
+
+Rule 2.7 Advisory
+A function should not contain unused parameters
+
+Rule 5.5 Required
+Identifiers shall be distinct from macro names
+
+Rule 8.2 Required
+Function types shall be in prototype form with named parameters
+
+Rule 8.4 Required
+A compatible declaration shall be visible when an object or function with external linkage is defined
+
+Rule 8.9 Advisory
+An object should be defined at block scope if its identifier only appears in a single function
+
+Rule 10.1 Required
+Operands shall not be of an inappropriate essential type
+
+Rule 10.3 Required
+The value of an expression shall not be assigned to an object with a narrower essential type or of a different essential type category
+
+Rule 10.4 Required
+Both operands of an operator in which the usual arithmetic conversions are performed shall have the same essential type category
+
+Rule 10.6 Required
+The value of a composite expression shall not be assigned to an object with wider essential type
+
+Rule 10.8 Required
+The value of a composite expression shall not be cast to a different essential type category or a wider essential type
+
+Rule 11.4 Advisory
+A conversion should not be performed between a pointer to object and an integer type
+
+Rule 11.6 Required
+A cast shall not be performed between a pointer to void and an arithmetic type
+
+Rule 11.8 Required
+A cast shall not remove any const or volatile qualification from the type pointed to by a pointer
+
+Rule 12.1 Advisory
+The precedence of operators within expressions should be made explicit
+
+Rule 12.2 Required
+The right-hand operand of a shift shall lie within the range zero to one less than the bit width of the promoted left operand
+
+Rule 14.4 Required
+The controlling expression of an if statement or iteration statement shall have an essentially Boolean type
+
+Rule 15.5 Advisory
+A function should have a single point of exit at its end
+
+Rule 17.7 Required
+The value returned by a function having non-void return type shall be used
+
+Rule 20.10 Advisory
+The hash and hash-hash preprocessor operators should not be used
+
+Rule 21.1 Required
+Define and undef shall not be used on a reserved identifier or reserved macro name
+
+Appendix B
