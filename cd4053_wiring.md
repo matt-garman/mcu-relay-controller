@@ -109,4 +109,6 @@ MCU2 = MCU signal to msofet gate for CTL2
 | BYPASS | 0, 0       |
 | MUTE   | 0, 1       |
 | ENGAGE | 1, 1       |
+| MUTE   | 0, 1       |
+| BYPASS | 0, 0       |
 
