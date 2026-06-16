@@ -2,37 +2,33 @@
 = Electric Guitar Effect Engage/Bypass Scheme using ATtiny13a
 
 
-== Why ATTiny13a
+== Why ATTiny13a / ATTinyX5
 
     * Readily available in SMD and through-hole
     * Low cost
-    * avr tools - mature, cross-platform, fully-featured
-      free/open-source tooling
-    * Low-ish power by use of CPU IDLE mode for typically <1mA
-      current draw
+    * avr tools - mature, cross-platform, fully-featured free/open-source tooling
+    * Low-ish power by use of CPU IDLE mode for typically <1mA current draw
     * Trivial hardware implementation
     * Schmitt trigger GPIO pins
 
 
 == High-Level Functional Description
 
-This ATTiny13a will be used with a physical human-operated
-footswitch (momentary, normally open), and an electric signal
-switching IC (CD4053 or TMUX4053). These components comprise a
-sub-circuit of a larger effect circuit, typically for use in a
-pedal.
+This ATTiny13a will be used with a physical human-operated footswitch
+(momentary, normally open), and an electric signal switching IC (CD4053 or
+TMUX4053). These components comprise a sub-circuit of a larger effect circuit,
+typically for use in a pedal.
 
-The user uses the footswitch to toggle between two states, "engaged"
-and "bypass".  In the "engaged" state, the audio signal is routed
-through some kind of effect; in "bypass", the effect is routed
-straight through (as though the user removed the device entirely
-from the signal chain).
+The user uses the footswitch to toggle between two states, "engaged" and
+"bypass".  In the "engaged" state, the audio signal is routed through some
+kind of effect; in "bypass", the effect is routed straight through (as though
+the user removed the device entirely from the signal chain).
 
-This switching sub-circuit also has a status indicator LED; when the
-effect is "engaged", the status LED should be lit, and when the
-effect is in "bypass", the status LED should be dark.
+This switching sub-circuit also has a status indicator LED; when the effect is
+"engaged", the status LED should be lit, and when the effect is in "bypass",
+the status LED should be dark.
 
-Therefore, the ATTiny13a needs to:
+Therefore, the MCU needs to:
     * maintain state (engage/bypass)
     * light or dark the status LED
     * respond to footswitch presses (including debounce)
