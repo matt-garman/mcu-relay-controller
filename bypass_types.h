@@ -1,6 +1,9 @@
+// Copyright (c) Matthew Garman.  All rights reserved.
+// Licensed under the MIT License. See LICENSE in the project root for
+// license information.
+
 #ifndef BYPASS_TYPES_H__
 #define BYPASS_TYPES_H__
-
 
 
 // possible high-level states of the debounce/bypass scheme
