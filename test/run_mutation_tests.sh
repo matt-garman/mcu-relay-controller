@@ -139,3 +139,4 @@ if [ "$survived" -ne 0 ] || [ "$errored" -ne 0 ]; then
 fi
 echo "all mutants killed: the suite detects every injected fault."
 exit 0
+
