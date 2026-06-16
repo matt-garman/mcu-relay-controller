@@ -6,7 +6,7 @@
 // in two translation units is safe because all definitions are static.
 //
 // The algorithm here must remain byte-identical to the ISR+main-loop in
-// attiny13_bypass.c. If the firmware changes, update this file first, then
+// bypass_core.c. If the firmware changes, update this file first, then
 // re-run the full test suite to confirm the proofs still hold on the new
 // algorithm.
 
@@ -17,7 +17,7 @@
 
 #include "bypass_config_host.h" // RELEASE_THRESH, PRESSED_THRESH (firmware truth)
 
-// Mirror attiny13_bypass.c's program_state_t / effect_state_t enum values.
+// Mirror bypass_core.c's program_state_t / effect_state_t enum values.
 enum { PRESS_DEBOUNCE_WAIT = 0, RELEASE_DEBOUNCE_WAIT = 1 };
 enum { BYPASS = 0, ENGAGED = 1 };
 
@@ -35,7 +35,7 @@ typedef struct {
 } step_result_t;
 
 // One 1ms step: ISR saturating integrator, then one main-loop state-machine
-// pass. Mirrors attiny13_bypass.c exactly.
+// pass. Mirrors bypass_core.c exactly.
 // pin_low != 0  =>  PB0 read low  =>  switch pressed.
 static step_result_t step(state_t s, int pin_low) {
     step_result_t r;

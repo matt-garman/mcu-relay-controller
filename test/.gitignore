@@ -1,11 +1,12 @@
 test_logic_host
-test_sim
-test_sim_t85
 test_model_check
-test_trace
-klee-last
-klee-out-*/
+test_symbolic
 test_symbolic.bc
 test_fuses
-test_symbolic
+# per-variant simavr harnesses: test_sim_<variant>[_t85], test_trace_<variant>
+test_sim
+test_sim_*
+test_trace_*
+klee-last
+klee-out-*/
 .toolchain.sig

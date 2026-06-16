@@ -21,7 +21,7 @@
 //     The SAME assertions are used in both modes, so the Makefile target can run
 //     under KLEE when available without any code changes here.
 //
-// step() is byte-identical to the algorithm in attiny13_bypass.c, the golden
+// step() is byte-identical to the algorithm in bypass_core.c, the golden
 // model, and test_model_check.c, and pulls thresholds from bypass_config.h via
 // the host shim -- so this verifies the real design.
 

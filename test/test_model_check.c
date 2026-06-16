@@ -1,4 +1,4 @@
-// Exhaustive small-model state-space verification for the attiny13_bypass
+// Exhaustive small-model state-space verification for the bypass
 // debounce/bypass algorithm.
 //
 // WHY THIS EXISTS

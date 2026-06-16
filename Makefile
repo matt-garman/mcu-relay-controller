@@ -1,14 +1,22 @@
 ################################################################################
-# attiny13_bypass -- build / test / flash Makefile
+# bypass -- build / test / flash Makefile
 ################################################################################
 #
 # WHAT THIS BUILDS
-#   A single firmware source (attiny13_bypass.c + bypass_config.h) targeting two
-#   MCUs:
+#   A hardware-agnostic core (bypass_core.c) plus one of three interchangeable
+#   output drivers, selected at build time:
+#     - cd4053 : CD4053/TMUX4053 analog switch, single control line (CD4053_SIMPLE)
+#     - mute   : CD4053/TMUX4053 with mute-before-switch (CD4053_WITH_MUTE)
+#     - relay  : Panasonic TQ2-L2-5V latching relay, pulsed coils (TQ2_L2_5V_RELAY)
+#   Each variant is built for two MCUs:
 #     - ATtiny13a @ 1.2 MHz : the primary production part.
 #     - ATtiny85  @ 1.0 MHz : a secondary build used ONLY for verification --
 #                             simavr can model the ATtiny85 watchdog system
 #                             reset, which it cannot do for the ATtiny13a.
+#
+#   Variant outputs are named bypass_<variant>.elf/.hex (ATtiny13a) and
+#   bypass_<variant>_t85.elf/.hex (ATtiny85). Pick a variant for single-target
+#   actions with VARIANT=<name>, e.g. `make VARIANT=relay program`.
 #
 # HOW THE TESTS ARE LAYERED (fast -> thorough)
 #   1. analyze            static analysis (clang-tidy / -fanalyzer)
@@ -26,11 +34,11 @@
 # forces a rebuild and re-runs the fault-injection gate (5).
 #
 # COMMON COMMANDS
-#   make                 build the ATtiny13a firmware (.hex) and print size
-#   make test            fast full test suite (~1 min) -- use this constantly
+#   make                 build all ATtiny13a variant firmwares (.hex) + sizes
+#   make test            fast full test suite (all variants) -- use constantly
 #   make test-long       exhaustive test suite (minutes) -- before release/HW
-#   make trace           emit bypass_trace.vcd waveform (view in GTKWave)
-#   make program         set fuses + flash the ATtiny13a (fresh chip)
+#   make trace           emit bypass_trace.vcd waveform (VARIANT=, GTKWave)
+#   make VARIANT=relay program   set fuses + flash one variant (fresh chip)
 #   make clean           remove all build/test artifacts
 #
 # FAST vs FULL TESTS
@@ -56,25 +64,53 @@
 #
 # MCU     : primary production MCU (ATtiny13a)
 # F_CPU   : 1.2 MHz (9.6 MHz internal RC / CKDIV8)
-# TARGET  : base name for .c / .elf / .hex
+# FW_BASE : base name for .elf / .hex (suffixed per variant)
 # CC      : AVR cross-compiler
 # OBJCOPY : ELF -> Intel HEX
 # SIZE    : flash/RAM usage reporter
 # AVRDUDE : ISP flashing tool
 MCU      = attiny13a
 F_CPU    = 1200000UL
-TARGET   = attiny13_bypass
+FW_BASE  = bypass
 CC       = avr-gcc
 OBJCOPY  = avr-objcopy
 SIZE     = avr-size
 AVRDUDE  = avrdude
 
 # --- Secondary (ATtiny85) verification target -------------------------------
-# Same firmware source, different MCU/flags. Exists because simavr can model
+# Same firmware sources, different MCU/flags. Exists because simavr can model
 # the ATtiny85 watchdog reset (used by the fault-injection tests).
 MCU85      = attiny85
 F_CPU85    = 1000000UL
-TARGET85   = attiny13_bypass_t85
+
+# --- Output variants ---------------------------------------------------------
+# The hardware-agnostic core (bypass_core.c) links against exactly one output
+# driver. A variant is identified by a short name; each maps to the -D selector
+# macro the firmware/tests compile with and to its driver source file. To add a
+# variant: add its short name here and define macro_<name>/src_<name> below.
+CORE_SRC = bypass_core.c
+VARIANTS = cd4053 mute relay
+
+# variant short name -> firmware -D selector macro
+macro_cd4053 = CD4053_SIMPLE
+macro_mute   = CD4053_WITH_MUTE
+macro_relay  = TQ2_L2_5V_RELAY
+
+# variant short name -> output driver source file
+src_cd4053 = bypass_output_cd4053_simple.c
+src_mute   = bypass_output_cd4053_with_mute.c
+src_relay  = bypass_output_tq2_l2_5v_relay.c
+
+# Headers shared by every firmware build; any change rebuilds all variants.
+FW_HEADERS = bypass_config.h bypass_types.h bypass_core.h bypass_output.h \
+             bypass_output_common.h \
+             bypass_output_cd4053_simple.h bypass_output_cd4053_with_mute.h \
+             bypass_output_tq2_l2_5v_relay.h
+
+# VARIANT selects the single-target build for size/flash/trace/program actions.
+# `make`/`make test` cover ALL variants; VARIANT only matters when you act on
+# one specific image (e.g. flashing).
+VARIANT ?= cd4053
 
 # Programmer settings.
 # PROGRAMMER: "51 AVR USB ISP ASP" dongle is a USBasp clone -> usbasp.
@@ -176,9 +212,16 @@ CLANG_TIDY_FLAGS   ?= $(CLANG_AVR_FLAGS)
 CLANG_TIDY_CHECKS  ?= -*,bugprone-*,cert-*,clang-analyzer-*,misc-*,-misc-include-cleaner,readability-misleading-indentation,performance-*
 # clang-tidy command (override to point at a different tidy binary).
 CLANG_TIDY         ?= clang-tidy
-# The analysis command itself (override to use cppcheck, a different tidy, etc.)
-ANALYZE_CMD        ?= $(CLANG_TIDY) --checks='$(CLANG_TIDY_CHECKS)' --warnings-as-errors='*' \
-                      $(TARGET).c -- $(CLANG_TIDY_FLAGS)
+# The clang-tidy invocation PREFIX (tool + checks). The analyze-tidy recipe
+# appends each firmware source and the AVR parse flags per file. Override to use
+# a different tidy binary or check set.
+ANALYZE_CMD        ?= $(CLANG_TIDY) --checks='$(CLANG_TIDY_CHECKS)' --warnings-as-errors='*'
+
+# Firmware translation units analyzed/linted by the `analyze` targets: the
+# hardware-agnostic core plus every variant's output driver. Each is analyzed
+# variant-agnostically (the core needs no selector; each driver includes its own
+# header directly).
+FW_SOURCES         = $(CORE_SRC) $(foreach v,$(VARIANTS),$(src_$(v)))
 
 # cppcheck: a second, independent analyzer. Uses the AVR platform model and the
 # avr-libc include path so it sees the real register definitions.
@@ -204,12 +247,18 @@ CLANG              ?= clang
 # -funsigned-char     plain char is unsigned
 # -ffunction/data-sections + --gc-sections : strip unused code/data
 # -Werror -Wall -Wextra -Wconversion : strict; -Wconversion catches narrowing
-CFLAGS  = -mmcu=$(MCU) -DF_CPU=$(F_CPU) -Os \
+# Flags common to every firmware build; the MCU/F_CPU differ per target and are
+# prepended in CFLAGS (t13a) / CFLAGS85 (t85).
+CFLAGS_COMMON = -Os \
           -fshort-enums -funsigned-char \
           -ffunction-sections -fdata-sections \
           -Werror -Wall -Wextra -Wconversion -std=c11
 
-LDFLAGS = -mmcu=$(MCU) -Wl,--gc-sections
+CFLAGS    = -mmcu=$(MCU)   -DF_CPU=$(F_CPU)   $(CFLAGS_COMMON)
+CFLAGS85  = -mmcu=$(MCU85) -DF_CPU=$(F_CPU85) $(CFLAGS_COMMON)
+
+LDFLAGS   = -mmcu=$(MCU)   -Wl,--gc-sections
+LDFLAGS85 = -mmcu=$(MCU85) -Wl,--gc-sections
 
 # --- Toolchain-change detection ----------------------------------------------
 # The firmware's RAM-corruption sanity checks (main()'s guard) -- and the
@@ -247,66 +296,55 @@ FORCE:
         size85 fuses85 flash85 program85
 
 # ============================================================================
-# BUILD -- ATtiny13a (primary)
+# BUILD -- firmware variant matrix (3 variants x 2 MCUs)
 # ============================================================================
+#
+# Per-variant ELF/HEX rules are generated by the template below so adding a
+# variant needs no new build rules. Each rule links bypass_core.c with the
+# variant's driver source and selects the variant with its -D macro. The
+# toolchain stamp is a prerequisite so a compiler change forces a rebuild (and
+# thus re-runs the fault-injection gate that validates the RAM-corruption guard).
+#
+# Generated for each variant <v>:
+#   bypass_<v>.elf  / bypass_<v>.hex       (ATtiny13a, 1.2 MHz)
+#   bypass_<v>_t85.elf / bypass_<v>_t85.hex (ATtiny85, 1.0 MHz)
+define VARIANT_BUILD_RULES
+$(FW_BASE)_$(1).elf: $$(CORE_SRC) $$(src_$(1)) $$(FW_HEADERS) $$(TOOLCHAIN_STAMP)
+	$$(CC) $$(CFLAGS) -D$$(macro_$(1)) $$(LDFLAGS) -o $$@ $$(CORE_SRC) $$(src_$(1))
 
-# Default goal: build the flashable ATtiny13a image and print its size.
-# `all` is an alias for `all13` (the primary part).
+$(FW_BASE)_$(1).hex: $(FW_BASE)_$(1).elf
+	$$(OBJCOPY) -O ihex -R .eeprom $$< $$@
+
+$(FW_BASE)_$(1)_t85.elf: $$(CORE_SRC) $$(src_$(1)) $$(FW_HEADERS) $$(TOOLCHAIN_STAMP)
+	$$(CC) $$(CFLAGS85) -D$$(macro_$(1)) $$(LDFLAGS85) -o $$@ $$(CORE_SRC) $$(src_$(1))
+
+$(FW_BASE)_$(1)_t85.hex: $(FW_BASE)_$(1)_t85.elf
+	$$(OBJCOPY) -O ihex -R .eeprom $$< $$@
+endef
+$(foreach v,$(VARIANTS),$(eval $(call VARIANT_BUILD_RULES,$(v))))
+
+# Convenience lists of every variant's artifacts.
+ALL_ELF13 = $(foreach v,$(VARIANTS),$(FW_BASE)_$(v).elf)
+ALL_HEX13 = $(foreach v,$(VARIANTS),$(FW_BASE)_$(v).hex)
+ALL_ELF85 = $(foreach v,$(VARIANTS),$(FW_BASE)_$(v)_t85.elf)
+ALL_HEX85 = $(foreach v,$(VARIANTS),$(FW_BASE)_$(v)_t85.hex)
+
+# Default goal: build every ATtiny13a variant image and print sizes.
 all: all13
 
-# Build the ATtiny13a firmware (.hex) and print its size.
-all13: $(TARGET).hex size
+# Build all ATtiny13a variant firmwares (.hex) + print sizes.
+all13: $(ALL_HEX13) size
 
-# Compile + link the firmware ELF (full warnings, -Werror, dead-code stripping).
-# Depends on the toolchain stamp so a compiler change forces a rebuild (and thus
-# re-runs the fault-injection gate that validates the RAM-corruption guard).
-$(TARGET).elf: $(TARGET).c $(TOOLCHAIN_STAMP)
-	$(CC) $(CFLAGS) $(LDFLAGS) -o $@ $<
+# Build all ATtiny85 variant firmwares (.hex) + print sizes.
+all85: $(ALL_HEX85) size85
 
-# Convert the ELF to the Intel HEX image avrdude flashes (drop .eeprom).
-$(TARGET).hex: $(TARGET).elf
-	$(OBJCOPY) -O ihex -R .eeprom $< $@
+# Report flash/RAM usage of every ATtiny13a variant build.
+size: $(ALL_ELF13)
+	@for e in $(ALL_ELF13); do echo "== $$e =="; $(SIZE) --mcu=$(MCU) -C $$e; done
 
-# Report flash/RAM usage of the ATtiny13a build.
-size: $(TARGET).elf
-	$(SIZE) --mcu=$(MCU) -C $<
-
-# ============================================================================
-# BUILD -- ATtiny85 (verification variant)
-# ============================================================================
-
-# Build the ATtiny85 firmware (.hex) and print its size.
-all85: $(TARGET85).hex size85
-
-# Compile the same source for the ATtiny85 (1.0 MHz). Flags mirror CFLAGS but
-# are spelled out because the MCU/F_CPU differ.
-$(TARGET85).elf: $(TARGET).c $(TOOLCHAIN_STAMP)
-	$(CC) -mmcu=$(MCU85) -DF_CPU=$(F_CPU85) -Os \
-		-fshort-enums -funsigned-char \
-		-ffunction-sections -fdata-sections \
-		-Werror -Wall -Wextra -Wconversion -std=c11 \
-		-Wl,--gc-sections -o $@ $<
-
-# Intel HEX image for the ATtiny85 build.
-$(TARGET85).hex: $(TARGET85).elf
-	$(OBJCOPY) -O ihex -R .eeprom $< $@
-
-# Report flash/RAM usage of the ATtiny85 build.
-size85: $(TARGET85).elf
-	$(SIZE) --mcu=$(MCU85) -C $<
-
-# Write the ATtiny85 design fuse bytes.
-fuses85:
-	$(AVRDUDE) -c $(PROGRAMMER) -p $(AVRDUDE_PART85) \
-		-U lfuse:w:$(LFUSE85):m \
-		-U hfuse:w:$(HFUSE85):m
-
-# Flash the ATtiny85 firmware image.
-flash85: $(TARGET85).hex
-	$(AVRDUDE) -c $(PROGRAMMER) -p $(AVRDUDE_PART85) -U flash:w:$(TARGET85).hex:i
-
-# Convenience: set ATtiny85 fuses then flash (fresh chip).
-program85: fuses85 flash85
+# Report flash/RAM usage of every ATtiny85 variant build.
+size85: $(ALL_ELF85)
+	@for e in $(ALL_ELF85); do echo "== $$e =="; $(SIZE) --mcu=$(MCU85) -C $$e; done
 
 # ============================================================================
 # CLEAN
@@ -315,18 +353,20 @@ program85: fuses85 flash85
 # Remove all build outputs and test binaries (keeps coverage/ -- see
 # coverage-clean for that).
 clean:
-	rm -f $(TARGET).elf $(TARGET).hex \
-		$(TARGET85).elf $(TARGET85).hex \
-		test/test_logic_host test/test_sim test/test_sim_t85 test/test_trace \
+	rm -f $(ALL_ELF13) $(ALL_HEX13) $(ALL_ELF85) $(ALL_HEX85) \
+		$(foreach v,$(VARIANTS),test/test_sim_$(v) test/test_sim_$(v)_t85 test/test_trace_$(v)) \
+		test/test_logic_host \
 		test/test_model_check test/test_symbolic test/test_fuses \
 		test/test_symbolic.bc \
-		bypass_trace.vcd $(TARGET).plist \
+		bypass_trace.vcd $(FW_BASE).plist \
 		$(TOOLCHAIN_STAMP)
 	rm -rf test/klee-out-* test/klee-last
 
 # ============================================================================
-# FLASH / FUSES -- ATtiny13a (hardware)
+# FLASH / FUSES -- hardware (select the image with VARIANT=<name>)
 # ============================================================================
+# These act on ONE variant image, chosen by VARIANT (default cd4053). The t85
+# equivalents (*85) flash the ATtiny85 build of the same variant.
 
 # Read-only: print the chip's currently programmed fuse bytes. Run this FIRST
 # to record a chip's existing fuses before changing anything.
@@ -340,12 +380,25 @@ fuses:
 		-U lfuse:w:$(LFUSE):m \
 		-U hfuse:w:$(HFUSE):m
 
-# Flash the firmware image to the MCU.
-flash: $(TARGET).hex
-	$(AVRDUDE) $(AVRDUDE_FLAGS) -U flash:w:$(TARGET).hex:i
+# Flash the selected variant's ATtiny13a image to the MCU.
+flash: $(FW_BASE)_$(VARIANT).hex
+	$(AVRDUDE) $(AVRDUDE_FLAGS) -U flash:w:$(FW_BASE)_$(VARIANT).hex:i
 
 # Convenience: set fuses, then flash firmware. Use for a fresh chip.
 program: fuses flash
+
+# Write the ATtiny85 design fuse bytes.
+fuses85:
+	$(AVRDUDE) -c $(PROGRAMMER) -p $(AVRDUDE_PART85) \
+		-U lfuse:w:$(LFUSE85):m \
+		-U hfuse:w:$(HFUSE85):m
+
+# Flash the selected variant's ATtiny85 image.
+flash85: $(FW_BASE)_$(VARIANT)_t85.hex
+	$(AVRDUDE) -c $(PROGRAMMER) -p $(AVRDUDE_PART85) -U flash:w:$(FW_BASE)_$(VARIANT)_t85.hex:i
+
+# Convenience: set ATtiny85 fuses then flash (fresh chip).
+program85: fuses85 flash85
 
 
 # ============================================================================
@@ -378,9 +431,9 @@ stress: test-long
 # currently selected workload sizing (FAST vs FULL *_DEFS).
 .PHONY: clean-tests
 clean-tests:
-	rm -f test/test_logic_host test/test_sim test/test_sim_t85 \
-	      test/test_model_check test/test_symbolic test/test_fuses \
-	      test/test_trace
+	rm -f test/test_logic_host test/test_model_check test/test_symbolic \
+	      test/test_fuses \
+	      $(foreach v,$(VARIANTS),test/test_sim_$(v) test/test_sim_$(v)_t85 test/test_trace_$(v))
 
 # Golden-model unit tests: an INDEPENDENT host (PC) re-implementation of the
 # debounce algorithm. No AVR involved -- fast logic verification that the
@@ -455,55 +508,70 @@ test/test_fuses: test/test_fuses.c Makefile
 		-DT85_LFUSE=$(LFUSE85) -DT85_HFUSE=$(HFUSE85) \
 		$< -o $@
 
-# simavr integration tests (ATtiny13a): run the REAL compiled firmware .elf in
-# the instruction-accurate simulator, drive PB0, and assert PB1/PB2 behavior.
-test-sim: test/test_sim
-	./test/test_sim
+# simavr integration tests: run the REAL compiled firmware .elf in the
+# instruction-accurate simulator, drive PB0, and assert LED + control-output
+# behavior. One binary per variant (the same harness compiled with the variant's
+# -D selector so it expects that variant's control-output behavior).
+#
+# Per-variant build + run rules are generated by the template below:
+#   test/test_sim_<v>      ATtiny13a harness   -> run via test-sim-<v>
+#   test/test_sim_<v>_t85  ATtiny85 harness    -> run via test-sim-<v>-t85
+#                          (-DTARGET_T85 selects the WDT-reset-aware paths)
+#   test/test_trace_<v>    VCD waveform builder (-DTRACE)
+SIM_DEPS = test/test_sim.c test/model_step.h test/bypass_config_host.h \
+           test/bypass_output_host.h bypass_config.h $(FW_HEADERS)
 
-# Build rule for the ATtiny13a sim harness (links against the t13 firmware ELF).
-test/test_sim: test/test_sim.c test/model_step.h test/bypass_config_host.h bypass_config.h $(TARGET).elf
-	$(HOSTCC) $(SIM_CFLAGS) $(SIM_DEFS) -Itest test/test_sim.c -o $@ $(SIM_LIBS)
+define VARIANT_SIM_RULES
+test/test_sim_$(1): $$(SIM_DEPS) $(FW_BASE)_$(1).elf
+	$$(HOSTCC) $$(SIM_CFLAGS) $$(SIM_DEFS) -D$$(macro_$(1)) -Itest \
+		-DFW_PATH=\"$(FW_BASE)_$(1).elf\" \
+		test/test_sim.c -o $$@ $$(SIM_LIBS)
 
-# simavr integration tests (ATtiny85): same harness/asserts, different MCU and
-# firmware. This build is where the watchdog system reset can be exercised.
-test-sim-t85: test/test_sim_t85
-	./test/test_sim_t85
-
-# Build rule for the ATtiny85 sim harness (links against the t85 firmware ELF;
-# -DTARGET_T85 selects the WDT-reset-aware test paths).
-test/test_sim_t85: test/test_sim.c test/model_step.h test/bypass_config_host.h bypass_config.h $(TARGET85).elf
-	$(HOSTCC) $(SIM_CFLAGS) $(SIM_DEFS) -Itest \
-		-DFW_PATH=\"$(TARGET85).elf\" \
+test/test_sim_$(1)_t85: $$(SIM_DEPS) $(FW_BASE)_$(1)_t85.elf
+	$$(HOSTCC) $$(SIM_CFLAGS) $$(SIM_DEFS) -D$$(macro_$(1)) -Itest \
+		-DFW_PATH=\"$(FW_BASE)_$(1)_t85.elf\" \
 		-DMCU_NAME=\"attiny85\" \
 		-DF_CPU_HZ=1000000UL \
 		-DTARGET_T85 \
-		test/test_sim.c -o $@ $(SIM_LIBS)
+		test/test_sim.c -o $$@ $$(SIM_LIBS)
+
+test/test_trace_$(1): $$(SIM_DEPS) $(FW_BASE)_$(1).elf
+	$$(HOSTCC) $$(SIM_CFLAGS) $$(SIM_DEFS) -D$$(macro_$(1)) -DTRACE -Itest \
+		-DFW_PATH=\"$(FW_BASE)_$(1).elf\" \
+		test/test_sim.c -o $$@ $$(SIM_LIBS)
+
+.PHONY: test-sim-$(1) test-sim-$(1)-t85 test-fault-inject-$(1)
+test-sim-$(1): test/test_sim_$(1)
+	@echo "--- sim (ATtiny13a) variant: $(1) ---"
+	./test/test_sim_$(1)
+test-sim-$(1)-t85: test/test_sim_$(1)_t85
+	@echo "--- sim (ATtiny85) variant: $(1) ---"
+	./test/test_sim_$(1)_t85
+test-fault-inject-$(1): test/test_sim_$(1)_t85
+	@echo "--- fault-injection (ATtiny85) variant: $(1) ---"
+	./test/test_sim_$(1)_t85 fault-inject
+endef
+$(foreach v,$(VARIANTS),$(eval $(call VARIANT_SIM_RULES,$(v))))
+
+# Aggregate targets: run the relevant per-variant target for every variant.
+test-sim:         $(foreach v,$(VARIANTS),test-sim-$(v))
+test-sim-t85:     $(foreach v,$(VARIANTS),test-sim-$(v)-t85)
+test-fault-inject:$(foreach v,$(VARIANTS),test-fault-inject-$(v))
 
 # Mutation testing: inject deliberate faults into the PRODUCTION sources
-# (attiny13_bypass.c / bypass_config.h), rebuild, and confirm a fast test target
-# DETECTS each one (the mutant is "killed"). A surviving mutant marks a gap in
-# the suite. Operates on throwaway copies; never touches the real sources. Not
-# part of `make test` (it rebuilds the firmware per mutant); included in
-# `test-long` and runnable standalone.
+# (bypass_core.c + the variant driver / bypass_config.h), rebuild, and confirm a
+# fast test target DETECTS each one (the mutant is "killed"). A surviving mutant
+# marks a gap in the suite. Operates on throwaway copies; never touches the real
+# sources. Not part of `make test` (it rebuilds the firmware per mutant);
+# included in `test-long` and runnable standalone.
 test-mutation:
 	./test/run_mutation_tests.sh
 
-# Fault-injection tests: corrupt MCU state (program_state_, effect_state_,
-# timer_isr_called_, DDRB/PORTB) and verify the firmware's main-loop sanity
-# check forces a watchdog reset and recovers to BYPASS. Runs on the ATtiny85
-# build because simavr models its WDT reset.
-test-fault-inject: test/test_sim_t85
-	./test/test_sim_t85 fault-inject
-
-# Generate a GTKWave-viewable waveform of PB0/PB1/PB2 over a representative
-# press/release sequence. Writes bypass_trace.vcd in the current directory.
-trace: test/test_trace
-	./test/test_trace
+# Generate a GTKWave-viewable waveform of PB0/PB1/PB2/PB3 over a representative
+# press/release sequence for the selected VARIANT. Writes bypass_trace.vcd.
+trace: test/test_trace_$(VARIANT)
+	./test/test_trace_$(VARIANT)
 	@echo "View with: gtkwave bypass_trace.vcd"
-
-# Build rule for the TRACE variant of the sim harness (-DTRACE emits the VCD).
-test/test_trace: test/test_sim.c test/model_step.h $(TARGET).elf
-	$(HOSTCC) $(SIM_CFLAGS) $(SIM_DEFS) -Itest -DTRACE test/test_sim.c -o $@ $(SIM_LIBS)
 
 # ============================================================================
 # STATIC ANALYSIS & COVERAGE
@@ -524,25 +592,29 @@ analyze: analyze-tidy analyze-cppcheck analyze-deep
 # clang-tidy (or whatever ANALYZE_CMD points at). Falls back to avr-gcc
 # -fanalyzer if a NEWER avr-gcc that supports it is ever installed; otherwise
 # errors with guidance.
-analyze-tidy: $(TARGET).c
+analyze-tidy: $(FW_SOURCES) $(FW_HEADERS)
 	@cmd=$(word 1,$(ANALYZE_CMD)); \
 	if command -v $$cmd >/dev/null 2>&1; then \
-		echo "clang-tidy: $$cmd"; \
-		$(ANALYZE_CMD); \
+		for f in $(FW_SOURCES); do \
+			echo "clang-tidy: $$cmd $$f"; \
+			$(ANALYZE_CMD) $$f -- $(CLANG_TIDY_FLAGS) || exit 1; \
+		done; \
 	elif $(CC) -fsyntax-only -fanalyzer -xc /dev/null >/dev/null 2>&1; then \
 		echo "avr-gcc -fanalyzer"; \
-		$(CC) $(CFLAGS) -fanalyzer -c $< -o $(TARGET).analyze.o; \
-		rm -f $(TARGET).analyze.o; \
+		for f in $(FW_SOURCES); do \
+			$(CC) $(CFLAGS) -fanalyzer -c $$f -o $(FW_BASE).analyze.o || exit 1; \
+		done; \
+		rm -f $(FW_BASE).analyze.o; \
 	else \
 		echo "No clang-tidy and avr-gcc lacks -fanalyzer. Install clang-tidy or set ANALYZE_CMD=..."; \
 		exit 1; \
 	fi
 
 # cppcheck second-opinion analyzer (gates via --error-exitcode=2).
-analyze-cppcheck: $(TARGET).c
+analyze-cppcheck: $(FW_SOURCES) $(FW_HEADERS)
 	@if command -v $(CPPCHECK) >/dev/null 2>&1; then \
 		echo "cppcheck: $(CPPCHECK)"; \
-		$(CPPCHECK) $(CPPCHECK_FLAGS) $(TARGET).c; \
+		$(CPPCHECK) $(CPPCHECK_FLAGS) $(FW_SOURCES); \
 	else \
 		echo "cppcheck not installed; skipping (install cppcheck to enable)"; \
 	fi
@@ -550,15 +622,19 @@ analyze-cppcheck: $(TARGET).c
 # Deep path analysis via the clang static analyzer on the AVR target. Emits
 # diagnostics as text and FAILS the build on any report (-Werror). This is the
 # `-fanalyzer`-equivalent gate.
-analyze-deep: $(TARGET).c
+analyze-deep: $(FW_SOURCES) $(FW_HEADERS)
 	@if command -v $(CLANG) >/dev/null 2>&1; then \
-		echo "clang --analyze (-target avr): $(CLANG)"; \
-		$(CLANG) --analyze -Xclang -analyzer-output=text -Werror \
-			$(CLANG_AVR_FLAGS) $(TARGET).c; \
+		for f in $(FW_SOURCES); do \
+			echo "clang --analyze (-target avr): $(CLANG) $$f"; \
+			$(CLANG) --analyze -Xclang -analyzer-output=text -Werror \
+				$(CLANG_AVR_FLAGS) $$f || exit 1; \
+		done; \
 	elif $(CC) -fsyntax-only -fanalyzer -xc /dev/null >/dev/null 2>&1; then \
 		echo "clang unavailable; using avr-gcc -fanalyzer"; \
-		$(CC) $(CFLAGS) -fanalyzer -c $(TARGET).c -o $(TARGET).analyze.o; \
-		rm -f $(TARGET).analyze.o; \
+		for f in $(FW_SOURCES); do \
+			$(CC) $(CFLAGS) -fanalyzer -c $$f -o $(FW_BASE).analyze.o || exit 1; \
+		done; \
+		rm -f $(FW_BASE).analyze.o; \
 	else \
 		echo "No deep analyzer available (need clang or avr-gcc>=10 with -fanalyzer)."; \
 		exit 1; \
@@ -613,38 +689,40 @@ coverage-clean:
 
 # One-line summary of the most useful targets.
 help:
+	@echo "Variants: $(VARIANTS)  (select one with VARIANT=<name>; default $(VARIANT))"
 	@echo "Build:"
-	@echo "  all (default)   build ATtiny13a firmware (.hex) + print size (alias for all13)"
-	@echo "  all13 / all85   build the ATtiny13a / ATtiny85 firmware (.hex) + print size"
-	@echo "  size / size85   print flash/RAM usage (t13 / t85)"
-	@echo "Test:"
-	@echo "  test            FAST full suite (~1 min) -- analyze, model, sim, coverage"
+	@echo "  all (default)   build ALL ATtiny13a variant firmwares (.hex) + sizes"
+	@echo "  all13 / all85   build all variant firmwares for ATtiny13a / ATtiny85"
+	@echo "  size / size85   print flash/RAM usage for every variant (t13 / t85)"
+	@echo "Test (each runs across ALL variants):"
+	@echo "  test            FAST full suite -- analyze, model, sim (x3), coverage"
 	@echo "  test-long       FULL exhaustive suite (minutes); alias: stress"
-	@echo "  test-host       golden-model algorithm tests (host)"
+	@echo "  test-host       golden-model algorithm tests (host, variant-agnostic)"
 	@echo "  test-model-check exhaustive state-space proof of invariants"
 	@echo "  test-symbolic   exhaustive single-step property proof of step()"
 	@echo "  test-symbolic-klee  same properties under KLEE (if installed)"
 	@echo "  test-fuses      decode + verify the design fuse bytes (t13 + t85)"
-	@echo "  test-sim        real firmware in simavr (ATtiny13a)"
-	@echo "  test-sim-t85    real firmware in simavr (ATtiny85)"
-	@echo "  test-fault-inject  corrupt state, verify watchdog recovery (t85)"
+	@echo "  test-sim        real firmware in simavr, all variants (ATtiny13a)"
+	@echo "  test-sim-t85    real firmware in simavr, all variants (ATtiny85)"
+	@echo "  test-sim-<v>    single variant, e.g. test-sim-relay / test-sim-relay-t85"
+	@echo "  test-fault-inject  corrupt state, verify watchdog recovery (t85, all)"
 	@echo "  test-mutation   inject firmware faults, verify the suite kills them"
-	@echo "  trace           emit bypass_trace.vcd (GTKWave)"
+	@echo "  trace           emit bypass_trace.vcd for VARIANT (GTKWave)"
 	@echo "Analysis:"
-	@echo "  analyze         static analysis (clang-tidy + cppcheck + clang-analyzer)"
+	@echo "  analyze         static analysis of core + all drivers (3 analyzers)"
 	@echo "  analyze-tidy / analyze-cppcheck / analyze-deep  individual analyzers"
 	@echo "  coverage        human-readable golden-model coverage report"
 	@echo "  coverage-check  fail if coverage < COVERAGE_MIN ($(COVERAGE_MIN)%)"
-	@echo "Hardware (ATtiny13a; *85 variants for ATtiny85):"
+	@echo "Hardware (act on VARIANT=$(VARIANT); *85 targets for ATtiny85):"
 	@echo "  readfuses       print current fuse bytes (read-only)"
-	@echo "  fuses           write design fuse bytes"
-	@echo "  flash           flash firmware"
-	@echo "  program         fuses + flash (fresh chip)"
+	@echo "  fuses / fuses85 write design fuse bytes"
+	@echo "  flash / flash85 flash the selected variant's firmware"
+	@echo "  program / program85  fuses + flash (fresh chip)"
 	@echo "Clean:"
 	@echo "  clean           remove build + test artifacts"
 	@echo "  clean-tests     remove only test binaries"
 	@echo "  coverage-clean  remove coverage artifacts"
-	@echo "Overrides: PROGRAMMER=, COVERAGE_MIN=, HOSTCC=, HOST_DEFS=, SIM_DEFS="
+	@echo "Overrides: VARIANT=, PROGRAMMER=, COVERAGE_MIN=, HOSTCC=, HOST_DEFS=, SIM_DEFS="
 
 
 # vim: tw=0 nowrap

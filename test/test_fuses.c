@@ -152,7 +152,7 @@ int main(void) {
     verify_t85();
 
     // -------------------------------------------------------------------------
-    // CRITICAL CROSS-CHECK: the design spec (attiny13_bypass.md / .c header)
+    // CRITICAL CROSS-CHECK: the design spec (the design doc / bypass_core.c header)
     // states "enable brown-out detection (BOD) at 2.7V". Verify BOTH parts
     // actually encode 2.7V BOD, since a wrong BODLEVEL is invisible to every
     // other test (it only bites as brown-out glitches on real silicon).

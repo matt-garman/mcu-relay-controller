@@ -1,4 +1,4 @@
-// Host-compiled "golden model" unit tests for the attiny13_bypass debounce
+// Host-compiled "golden model" unit tests for the bypass debounce
 // state machine.
 //
 // IMPORTANT: this file does NOT include the firmware. It re-implements the
@@ -39,7 +39,7 @@
 #endif
 
 //////////////////////////////////////////////////////////////////////////////
-// Golden model: mirrors attiny13_bypass.c constants and logic exactly.
+// Golden model: mirrors bypass_core.c constants and logic exactly.
 //////////////////////////////////////////////////////////////////////////////
 
 // RELEASE_THRESH and PRESSED_THRESH come from bypass_config.h (via the host

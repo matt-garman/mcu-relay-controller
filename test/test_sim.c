@@ -1,19 +1,31 @@
-// simavr integration tests for attiny13_bypass.
+// simavr integration tests for the bypass firmware (all output variants).
 //
-// This runs the ACTUAL compiled firmware (attiny13_bypass.elf) inside the
-// simavr instruction-accurate simulator, drives the footswitch pin (PB0)
-// over simulated time, and asserts on the LED (PB1) and CD4053 (PB2) outputs.
+// This runs the ACTUAL compiled firmware ELF inside the simavr
+// instruction-accurate simulator, drives the footswitch pin (PB0) over
+// simulated time, and asserts on the LED (PB1) and the variant's control
+// outputs (PB2/PB3).
 //
 // Unlike test_logic_host.c (a golden model), this exercises the real ISR,
 // Timer0 configuration, sleep/wake, and main-loop state machine as compiled
 // for the AVR.
 //
-// Build & run: see Makefile target `test-sim`.
+// Build & run: see Makefile target `test-sim` (one binary per variant).
 //
-// Pin mapping (from the firmware):
-//   PB0 = footswitch input  : LOW = pressed, HIGH = released
-//   PB1 = status LED output  : HIGH = engaged/lit, LOW = bypass/dark
-//   PB2 = CD4053 ctrl output : HIGH when engaged, LOW when bypass
+// The debounce algorithm -- and therefore the LED behavior -- is IDENTICAL
+// across all three output variants: PB1 is lit when engaged, dark when
+// bypassed, with exactly one transition per toggle. So the bulk of this suite
+// (debounce, timing, noise immunity, watchdog, fault recovery) is
+// variant-independent and observes only the LED. Only the CONTROL outputs
+// differ between variants, and those are checked by dedicated per-variant
+// tests (see "variant-specific control output" below).
+//
+// Pin mapping (from the firmware headers, single source of truth):
+//   PB0 = footswitch input : LOW = pressed, HIGH = released
+//   PB1 = status LED output: HIGH = engaged/lit, LOW = bypass/dark
+//   PB2/PB3 = control outputs, meaning depends on the selected variant:
+//     CD4053_SIMPLE    : PB2 = CD4053 ctrl (HIGH=engaged), PB3 unused (low)
+//     CD4053_WITH_MUTE : PB2 = CTL1, PB3 = CTL2 (mute-before-switch)
+//     TQ2_L2_5V_RELAY  : PB2 = RESET coil, PB3 = SET coil (pulsed, then parked low)
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -26,20 +38,29 @@
 #include "sim_irq.h"
 #include "sim_vcd_file.h"
 
-// Pull PRESSED_THRESH / RELEASE_THRESH (and the pin numbers) directly from the
-// firmware's bypass_config.h, via the host shim, so the sim tests can never
-// drift from the real firmware thresholds. The shim defines FOOTSW_PIN /
-// LED_PIN / CD4053_PIN as PB0/PB1/PB2 == 0/1/2, which are exactly the IRQ
-// indices this harness uses below.
+// Pull PRESSED_THRESH / RELEASE_THRESH directly from the firmware's
+// bypass_config.h, via the host shim, so the sim tests can never drift from the
+// real firmware thresholds.
 #include "bypass_config_host.h"
+
+// Pull the pin assignments (FOOTSW_PIN, LED_PIN, and the variant control pins)
+// directly from the firmware output headers, via the host shim, so the harness
+// reads the SAME pins the firmware drives. The selected variant (CD4053_SIMPLE /
+// CD4053_WITH_MUTE / TQ2_L2_5V_RELAY) is passed by the Makefile as -D, matching
+// the firmware build.
+#include "bypass_output_host.h"
 
 // Canonical single-step model (state_t, step_result_t, step()), shared with
 // test_model_check.c and test_symbolic.c.  The lock-step model below delegates
-// to step() so the three test files always exercise the same algorithm.
+// to step() so the three test files always exercise the same algorithm. Only
+// the lock-step test uses it, so the TRACE build (which only emits a waveform)
+// does not need it.
+#ifndef TRACE
 #include "model_step.h"
+#endif
 
 #ifndef FW_PATH
-#  define FW_PATH      "attiny13_bypass.elf"
+#  define FW_PATH      "bypass_cd4053.elf"
 #endif
 #ifndef MCU_NAME
 #  define MCU_NAME     "attiny13"
@@ -47,6 +68,25 @@
 #ifndef F_CPU_HZ
 #  define F_CPU_HZ     1200000UL
 #endif
+
+// Worst-case blocking delay (ms) the selected variant performs inside
+// set_bypass_state()/set_engaged_state(): the relay coil pulse or the
+// mute-before-switch settle. The CD4053 simple variant does no delay. The test
+// harness uses this to size settle/budget windows so a toggle that blocks the
+// main loop for this long is not mistaken for a hung core.
+#if defined(TQ2_L2_5V_RELAY)
+#  define CTL_DELAY_MS  TQ2_L2_5V_PULSE_MS
+#elif defined(CD4053_WITH_MUTE)
+#  define CTL_DELAY_MS  CD4053_MUTE_DELAY_MS
+#else
+#  define CTL_DELAY_MS  0
+#endif
+
+// Settle time after (re)loading firmware: enough for init() -- which on the
+// relay/mute variants performs one blocking coil/mute pulse before enabling the
+// timer -- to finish AND for the first few 1ms ticks to land. 5ms base + the
+// variant's init pulse.
+#define SETTLE_MS (5u + CTL_DELAY_MS)
 
 #ifndef SIM_RANDOM_NOISE_DURATION_MS
 #define SIM_RANDOM_NOISE_DURATION_MS 60000u
@@ -114,8 +154,8 @@
 #define SIM_LOCKSTEP_ITERS 5000u
 #endif
 
-// PB0/PB1/PB2 IRQ indices (these match FOOTSW_PIN/LED_PIN/CD4053_PIN from
-// bypass_config.h, but the simavr IRQ API wants plain integers).
+// SRAM-mapped I/O register addresses (I/O addr + 0x20 SFR offset). Used by the
+// fault-injection tests to poke registers directly.
 #define TIMSK_MEM_ADDR 0x59  // TIMSK0/TIMSK I/O addr 0x39 + SFR offset 0x20
 #define DDRB_MEM_ADDR  0x37  // DDRB I/O addr 0x17 + SFR offset 0x20
 #define PORTB_MEM_ADDR 0x38  // PORTB I/O addr 0x18 + SFR offset 0x20
@@ -123,10 +163,21 @@
 // --- global sim state shared with output-watch callbacks -------------------
 static avr_t      *g_avr = NULL;
 static int         g_led_level    = 0; // current PB1 level
-static int         g_cd4053_level = 0; // current PB2 level
 static uint32_t    g_led_changes  = 0; // count of PB1 transitions
 static int         g_saw_sleep    = 0; // set if CPU ever entered cpu_Sleeping
 static int         g_saw_crash    = 0; // set if CPU ever hit cpu_Crashed (WDT)
+
+// Control-output watchers. PB2 and PB3 are watched generically; their meaning
+// is variant-specific (see the pin-mapping comment at the top of the file).
+// Tracking rising/falling edge timestamps lets the relay test measure coil
+// pulse width and the mute test measure the mute window.
+#define CTL_PB2 0
+#define CTL_PB3 1
+#define N_CTL   2
+static int               g_ctl_level[N_CTL]      = {0, 0}; // current PB2/PB3 level
+static uint32_t          g_ctl_changes[N_CTL]    = {0, 0}; // transition counts
+static avr_cycle_count_t g_ctl_rise_cycle[N_CTL] = {0, 0}; // cycle of last 0->1
+static avr_cycle_count_t g_ctl_fall_cycle[N_CTL] = {0, 0}; // cycle of last 1->0
 // cycle timestamp of the most recent PB1 (LED) transition; used by the latency
 // test to measure press->toggle time against the real firmware.
 static avr_cycle_count_t g_last_led_change_cycle = 0;
@@ -165,12 +216,24 @@ static void led_hook(struct avr_irq_t *irq, uint32_t value, void *param) {
     g_led_level = v;
 }
 
-// Called by simavr whenever PB2 (CD4053) changes level.
-static void cd4053_hook(struct avr_irq_t *irq, uint32_t value, void *param) {
-    (void)irq; (void)param;
-    g_cd4053_level = value ? 1 : 0;
+// Called by simavr whenever a watched control pin (PB2/PB3) changes level.
+// `param` carries the control index (CTL_PB2 / CTL_PB3).
+static void ctl_hook(struct avr_irq_t *irq, uint32_t value, void *param) {
+    (void)irq;
+    int idx = (int)(intptr_t)param;
+    int v = value ? 1 : 0;
+    if (v != g_ctl_level[idx]) {
+        g_ctl_changes[idx]++;
+        if (g_avr) {
+            if (v) { g_ctl_rise_cycle[idx] = g_avr->cycle; }
+            else   { g_ctl_fall_cycle[idx] = g_avr->cycle; }
+        }
+    }
+    g_ctl_level[idx] = v;
 }
 
+// (unused in the TRACE build, which drives a fixed scenario)
+static uint32_t xorshift32(uint32_t *state) __attribute__((unused));
 static uint32_t xorshift32(uint32_t *state) {
     uint32_t x = *state;
     x ^= x << 13;
@@ -215,6 +278,7 @@ static inline void footsw_drive(int pressed, unsigned ms) {
 // Run for an exact number of AVR clock cycles rather than whole milliseconds.
 // Used to place footswitch edges at arbitrary phase offsets within the 1ms
 // Timer0 tick period (CYCLES_PER_MS = F_CPU_HZ/1000 cycles per tick).
+static void run_cycles(avr_cycle_count_t cycles) __attribute__((unused));
 static void run_cycles(avr_cycle_count_t cycles) {
     avr_cycle_count_t target = g_avr->cycle + cycles;
     while (g_avr->cycle < target) {
@@ -233,6 +297,8 @@ static void run_cycles(avr_cycle_count_t cycles) {
 // This is the cleanest "init() finished and the main loop is live" signal:
 // init() runs with interrupts disabled and never sleeps, so the first
 // cpu_Sleeping marks the transition into steady-state operation.
+static avr_cycle_count_t run_until_first_sleep(avr_cycle_count_t cycle_budget)
+    __attribute__((unused));
 static avr_cycle_count_t run_until_first_sleep(avr_cycle_count_t cycle_budget) {
     avr_cycle_count_t start  = g_avr->cycle;
     avr_cycle_count_t target = start + cycle_budget;
@@ -294,26 +360,39 @@ static int sim_reset_raw(int footsw_pressed_at_power_on, int settle) {
 #endif
 
     // reset instrumentation
-    g_led_level = g_cd4053_level = 0;
+    g_led_level = 0;
     g_led_changes = 0;
     g_saw_sleep = 0;
     g_saw_crash = 0;
     g_last_led_change_cycle = 0;
+    for (int i = 0; i < N_CTL; ++i) {
+        g_ctl_level[i] = 0;
+        g_ctl_changes[i] = 0;
+        g_ctl_rise_cycle[i] = 0;
+        g_ctl_fall_cycle[i] = 0;
+    }
 
-    // Register output watchers on PB1 and PB2.
+    // Register output watchers: LED on PB1, control outputs on PB2 and PB3.
+    // PB2/PB3 are watched regardless of variant (for CD4053_SIMPLE, PB3 is an
+    // unused output parked low and simply never transitions).
     avr_irq_register_notify(
         avr_io_getirq(g_avr, AVR_IOCTL_IOPORT_GETIRQ('B'), LED_PIN),
         led_hook, NULL);
     avr_irq_register_notify(
-        avr_io_getirq(g_avr, AVR_IOCTL_IOPORT_GETIRQ('B'), CD4053_PIN),
-        cd4053_hook, NULL);
+        avr_io_getirq(g_avr, AVR_IOCTL_IOPORT_GETIRQ('B'), PB2),
+        ctl_hook, (void *)(intptr_t)CTL_PB2);
+    avr_irq_register_notify(
+        avr_io_getirq(g_avr, AVR_IOCTL_IOPORT_GETIRQ('B'), PB3),
+        ctl_hook, (void *)(intptr_t)CTL_PB3);
 
     // Establish the footswitch level BEFORE the firmware samples it in init().
     footsw_set(footsw_pressed_at_power_on);
 
     // Let init() run and settle (clock, timer, first ticks) unless the caller
-    // wants the sim left exactly at reset (init() timing measurement).
-    if (settle) { run_ms(5); }
+    // wants the sim left exactly at reset (init() timing measurement). On the
+    // relay/mute variants init() performs one blocking coil/mute pulse before
+    // enabling the timer, so SETTLE_MS includes that (see its definition).
+    if (settle) { run_ms(SETTLE_MS); }
     return 0;
 }
 
@@ -328,21 +407,26 @@ static int sim_reset(int footsw_pressed_at_power_on) {
 //////////////////////////////////////////////////////////////////////////////
 #ifndef TRACE
 
-// Power-on default: BYPASS -> LED dark (PB1 low), PB2 low.
+// Power-on default: BYPASS -> LED dark (PB1 low). All variants also park both
+// control lines (PB2/PB3) low at the bypass steady state (CD4053 low; relay
+// coils de-energized; mute CTL1/CTL2 low). Variant-specific control behavior
+// during switching is checked by the per-variant control tests.
 static void test_power_on_default(void) {
     if (sim_reset(0) != 0) { g_failures++; return; }
     CHECK(g_led_level == 0, "power-on LED should be dark, got %d", g_led_level);
-    CHECK(g_cd4053_level == 0, "power-on CD4053 should be low, got %d", g_cd4053_level);
+    CHECK(g_ctl_level[CTL_PB2] == 0 && g_ctl_level[CTL_PB3] == 0,
+          "power-on control lines should be low, got PB2=%d PB3=%d",
+          g_ctl_level[CTL_PB2], g_ctl_level[CTL_PB3]);
 }
 
-// One clean press engages: LED lit, PB2 high, exactly one LED transition.
+// One clean press engages: LED lit, exactly one LED transition. (The control
+// output is verified per-variant; here we only assert the universal LED.)
 static void test_single_press_engages(void) {
     if (sim_reset(0) != 0) { g_failures++; return; }
     uint32_t before = g_led_changes;
     footsw_set(1); run_ms(50);   // press & hold past threshold
     footsw_set(0); run_ms(50);   // release
     CHECK(g_led_level == 1, "after press LED should be lit, got %d", g_led_level);
-    CHECK(g_cd4053_level == 1, "after press CD4053 high, got %d", g_cd4053_level);
     CHECK((g_led_changes - before) == 1,
           "exactly one LED transition, got %u", g_led_changes - before);
 }
@@ -636,10 +720,14 @@ static void test_toggle_parity_invariant(void) {
         CHECK(g_led_level == expect_lit,
               "parity broken at i=%u: toggles=%u led=%d expected=%d",
               i, toggles, g_led_level, expect_lit);
-        // CD4053 must track the LED exactly (both reflect engaged/bypass).
-        CHECK(g_cd4053_level == g_led_level,
+#if defined(CD4053_SIMPLE) || (!defined(CD4053_WITH_MUTE) && !defined(TQ2_L2_5V_RELAY))
+        // CD4053 simple: the control output (PB2) tracks the LED exactly (both
+        // reflect engaged/bypass). The mute/relay variants drive PB2/PB3
+        // differently (pulses), so this mirror invariant is simple-only.
+        CHECK(g_ctl_level[CTL_PB2] == g_led_level,
               "CD4053 (PB2=%d) diverged from LED (PB1=%d) at i=%u",
-              g_cd4053_level, g_led_level, i);
+              g_ctl_level[CTL_PB2], g_led_level, i);
+#endif
     }
 }
 
@@ -705,15 +793,34 @@ static void ls_model_step(ls_model_t *m, int pin_low) {
 // changing PB0 never wakes the core -- only the timer does -- and the input set
 // before this call is the one this single tick integrates.
 //
+// `pin_low` is the footswitch level to hold for this tick. We re-assert it on
+// every avr_run() step (not just once) to work around a simavr modeling quirk:
+// when the firmware does a read-modify-write of PORTB (to drive the LED or a
+// control pin), simavr re-evaluates the IRQ-driven INPUT pin PB0 back to its
+// pull-up level, dropping the externally-driven "pressed" (low) state. On real
+// hardware, writing PB1/PB2/PB3 cannot disturb the PB0 switch input, so the
+// switch stays pressed. This matters on the relay/mute variants, where the
+// toggle's set_*_state() blocks in _delay_ms() and several more timer ISRs
+// sample PB0 AFTER those PORTB writes -- without re-asserting, simavr would feed
+// the integrator spurious "released" samples that real hardware never sees.
+// Re-driving each step keeps the simulated switch faithfully held.
+//
 // Returns 0 on success, -1 if the expected wake/sleep cycle did not occur
 // within a safety budget (a crash or a stuck core -- itself a failure).
-static int run_one_tick_settled(void) {
-    const avr_cycle_count_t budget = (avr_cycle_count_t)(5UL * (F_CPU_HZ / 1000UL));
+static int run_one_tick_settled(int pin_low) {
+    // Safety ceiling for one wake->process->sleep cycle. On a toggle tick the
+    // relay/mute variants block in _delay_ms() inside set_*_state() before the
+    // main loop sleeps again, so the budget must exceed that pulse. 5ms base +
+    // 2x the variant delay leaves generous margin while still catching a truly
+    // stuck core.
+    const avr_cycle_count_t budget =
+        (avr_cycle_count_t)((5UL + 2UL * CTL_DELAY_MS) * (F_CPU_HZ / 1000UL));
     avr_cycle_count_t start = g_avr->cycle;
 
     // 1. Wait for the core to WAKE (timer ISR fired). While idle, avr_run
     //    returns cpu_Sleeping and fast-forwards to the next timer event.
     for (;;) {
+        footsw_set(pin_low);
         int st = avr_run(g_avr);
         if (st == cpu_Crashed) { g_saw_crash = 1; return -1; }
         if (st == cpu_Done) return -1;
@@ -722,6 +829,7 @@ static int run_one_tick_settled(void) {
     }
     // 2. Wait until it SLEEPS again (main finished processing this tick).
     for (;;) {
+        footsw_set(pin_low);
         int st = avr_run(g_avr);
         if (st == cpu_Crashed) { g_saw_crash = 1; return -1; }
         if (st == cpu_Done) return -1;
@@ -765,8 +873,10 @@ static void test_lockstep_cosim(void) {
         for (unsigned h = 0; h < hold && ticks < SIM_LOCKSTEP_ITERS; ++h, ++ticks) {
             uint8_t es_before = m.effect_state;
 
-            footsw_set(pin_low); // pressed => drive LOW
-            if (run_one_tick_settled() != 0) {
+            // pressed => drive LOW; run_one_tick_settled re-asserts it on every
+            // step (see its comment) so the relay/mute toggle delay doesn't feed
+            // the integrator spurious samples via simavr's input-pin quirk.
+            if (run_one_tick_settled(pin_low) != 0) {
                 CHECK(0, "lock-step: firmware failed to complete tick %u "
                          "(crash or stuck core)", ticks);
                 return;
@@ -788,14 +898,17 @@ static void test_lockstep_cosim(void) {
                   m.program_state, m.effect_state, m.debounce_counter);
             if (!ok) { mismatches++; }
 
-            // The firmware outputs must also track the model's effect state
-            // exactly (LED lit / CD4053 high == ENGAGED).
+            // The LED must track the model's effect state exactly in every
+            // variant (LED lit == ENGAGED).
             CHECK(g_led_level == (int)m.effect_state,
                   "lock-step: LED (PB1=%d) disagrees with model effect_state=%u at tick %u",
                   g_led_level, m.effect_state, ticks);
-            CHECK(g_cd4053_level == (int)m.effect_state,
+#if defined(CD4053_SIMPLE) || (!defined(CD4053_WITH_MUTE) && !defined(TQ2_L2_5V_RELAY))
+            // CD4053 simple only: PB2 also tracks effect state directly.
+            CHECK(g_ctl_level[CTL_PB2] == (int)m.effect_state,
                   "lock-step: CD4053 (PB2=%d) disagrees with model effect_state=%u at tick %u",
-                  g_cd4053_level, m.effect_state, ticks);
+                  g_ctl_level[CTL_PB2], m.effect_state, ticks);
+#endif
         }
     }
 
@@ -989,7 +1102,7 @@ static void test_register_corruption_recovery(void) {
 // path. These exercise the sanity-check branches that the existing
 // DDRB-corruption test does not reach:
 //
-//   firmware main() guard (attiny13_bypass.c):
+//   firmware main() guard (bypass_core.c):
 //     program_state_ > RELEASE_DEBOUNCE_WAIT   -> invalid program state
 //     effect_state_  > ENGAGED                 -> invalid effect state
 //     timer_isr_called_ > TIMER_ISR_NOT_CALLED -> invalid handshake flag
@@ -1096,17 +1209,19 @@ static void test_fault_inject_lost_pullup(void) {
     expect_fault_response("PORTB pullup");
 }
 
-// Clear the CD4053 output direction bit in DDRB (companion to the existing LED
-// DDRB test; together they cover both required output-direction bits).
-static void test_fault_inject_cd4053_ddr(void) {
+// Clear a control-output direction bit (PB2) in DDRB (companion to the existing
+// LED DDRB test; together they cover both required output-direction bits). PB2
+// is a checked output in every variant's is_sanity_check_failed() (CD4053 ctrl /
+// CTL1 / RESET coil), so this exercises the variant's control-output guard.
+static void test_fault_inject_control_ddr(void) {
     if (sim_reset(0) != 0) { g_failures++; return; }
 
     footsw_set(1); run_ms(50); footsw_set(0); run_ms(50);
-    CHECK(g_led_level == 1, "fault-inject [cd4053 DDR]: normal press engages");
+    CHECK(g_led_level == 1, "fault-inject [control DDR]: normal press engages");
 
     avr_core_watch_write(g_avr, DDRB_MEM_ADDR,
-                         g_avr->data[DDRB_MEM_ADDR] & (uint8_t)~(1 << CD4053_PIN));
-    expect_fault_response("CD4053 DDR");
+                         g_avr->data[DDRB_MEM_ADDR] & (uint8_t)~(1 << PB2));
+    expect_fault_response("control DDR (PB2)");
 }
 
 static void run_fault_injection_suite(void) {
@@ -1116,7 +1231,7 @@ static void run_fault_injection_suite(void) {
     test_fault_inject_timer_isr_flag();
 #endif
     test_fault_inject_lost_pullup();
-    test_fault_inject_cd4053_ddr();
+    test_fault_inject_control_ddr();
 }
 
 // Oscillator drift tolerance: verify the <10ms press-latency goal holds across
@@ -1281,10 +1396,11 @@ static void test_stack_high_water_mark(void) {
     }
 
     // Representative workload: init(), two press/release cycles (covers the ISR
-    // frame, toggle path, lockout drain, and re-arm -- the deepest call paths).
-    run_ms(5);
-    footsw_set(1); run_ms(20); footsw_set(0); run_ms(40);
-    footsw_set(1); run_ms(20); footsw_set(0); run_ms(40);
+    // frame, toggle path including the variant's set_*_state() delay, lockout
+    // drain, and re-arm -- the deepest call paths).
+    run_ms(SETTLE_MS);
+    footsw_set(1); run_ms(20 + CTL_DELAY_MS); footsw_set(0); run_ms(40);
+    footsw_set(1); run_ms(20 + CTL_DELAY_MS); footsw_set(0); run_ms(40);
 
     // Scan downward from ramend; the first 0xAA byte we encounter is the
     // deepest address the stack never reached. Everything above (toward ramend)
@@ -1309,6 +1425,167 @@ static void test_stack_high_water_mark(void) {
           margin_bytes, deepest_sp);
 }
 
+
+//////////////////////////////////////////////////////////////////////////////
+// Variant-specific control-output verification
+//
+// The tests above observe only the LED (PB1), which behaves identically across
+// all variants. These tests verify what makes each variant DIFFERENT: how the
+// PB2/PB3 control outputs drive the audio-switching hardware on a toggle.
+// Exactly one of these is compiled in, selected by the same -D the firmware was
+// built with.
+//////////////////////////////////////////////////////////////////////////////
+
+#if defined(TQ2_L2_5V_RELAY)
+// TQ2-L2-5V latching relay: a toggle must pulse exactly one coil for the
+// configured duration, leave the other coil idle, and PARK BOTH COILS LOW
+// afterward (a coil left energized would overheat). Engage pulses the SET coil
+// (PB3); bypass pulses the RESET coil (PB2). The pulse must meet the relay's
+// 4ms datasheet minimum and sit near the design value.
+static void check_coil_pulse(int pulse_idx, int idle_idx, const char *what) {
+    double pulse_ms =
+        (double)(g_ctl_fall_cycle[pulse_idx] - g_ctl_rise_cycle[pulse_idx])
+        / (double)CYCLES_PER_MS;
+    printf("  relay %s pulse: %.2f ms (datasheet min 4ms, design %d ms)\n",
+           what, pulse_ms, TQ2_L2_5V_PULSE_MS);
+    CHECK(pulse_ms >= 4.0,
+          "relay %s pulse %.2f ms below 4ms datasheet minimum", what, pulse_ms);
+    CHECK(pulse_ms >= (double)TQ2_L2_5V_PULSE_MS - 1.0 &&
+          pulse_ms <= (double)TQ2_L2_5V_PULSE_MS + 2.0,
+          "relay %s pulse %.2f ms not near design %d ms",
+          what, pulse_ms, TQ2_L2_5V_PULSE_MS);
+    CHECK(g_ctl_level[pulse_idx] == 0 && g_ctl_level[idle_idx] == 0,
+          "relay %s: both coils must be parked low after the pulse "
+          "(PB2=%d PB3=%d)", what, g_ctl_level[CTL_PB2], g_ctl_level[CTL_PB3]);
+}
+
+static void test_control_relay_pulse(void) {
+    if (sim_reset(0) != 0) { g_failures++; return; }
+
+    // Power-on bypass: both coils must be de-energized (parked low).
+    CHECK(g_ctl_level[CTL_PB2] == 0 && g_ctl_level[CTL_PB3] == 0,
+          "relay: both coils low at power-on (PB2=%d PB3=%d)",
+          g_ctl_level[CTL_PB2], g_ctl_level[CTL_PB3]);
+
+    // --- Engage: SET coil (PB3) pulses once; RESET (PB2) stays idle. ---
+    uint32_t set_before = g_ctl_changes[CTL_PB3];
+    uint32_t rst_before = g_ctl_changes[CTL_PB2];
+    footsw_set(1); run_ms(50); footsw_set(0); run_ms(50);
+    CHECK(g_led_level == 1, "relay: engage lights LED");
+    CHECK((g_ctl_changes[CTL_PB3] - set_before) == 2,
+          "relay: SET coil should pulse once (2 edges) on engage, got %u edges",
+          g_ctl_changes[CTL_PB3] - set_before);
+    CHECK((g_ctl_changes[CTL_PB2] - rst_before) == 0,
+          "relay: RESET coil must not move on engage, got %u edges",
+          g_ctl_changes[CTL_PB2] - rst_before);
+    check_coil_pulse(CTL_PB3, CTL_PB2, "SET (engage)");
+
+    // --- Bypass: RESET coil (PB2) pulses once; SET (PB3) stays idle. ---
+    set_before = g_ctl_changes[CTL_PB3];
+    rst_before = g_ctl_changes[CTL_PB2];
+    footsw_set(1); run_ms(50); footsw_set(0); run_ms(50);
+    CHECK(g_led_level == 0, "relay: second press bypasses (LED dark)");
+    CHECK((g_ctl_changes[CTL_PB2] - rst_before) == 2,
+          "relay: RESET coil should pulse once (2 edges) on bypass, got %u edges",
+          g_ctl_changes[CTL_PB2] - rst_before);
+    CHECK((g_ctl_changes[CTL_PB3] - set_before) == 0,
+          "relay: SET coil must not move on bypass, got %u edges",
+          g_ctl_changes[CTL_PB3] - set_before);
+    check_coil_pulse(CTL_PB2, CTL_PB3, "RESET (bypass)");
+}
+
+#elif defined(CD4053_WITH_MUTE)
+// "Improved scheme with muting": a toggle asserts the mute, waits the
+// mute-settle time, switches, then releases the mute -- so the analog switch
+// changes state silently. BYPASS steady state = both control lines low; ENGAGED
+// = both high. We verify the steady states and that the mute window between the
+// two control-line edges matches the design settle time.
+static void test_control_mute_sequence(void) {
+    if (sim_reset(0) != 0) { g_failures++; return; }
+
+    // Power-on bypass steady state: both control lines low.
+    CHECK(g_ctl_level[CTL_PB2] == 0 && g_ctl_level[CTL_PB3] == 0,
+          "mute: bypass steady state both low (PB2=%d PB3=%d)",
+          g_ctl_level[CTL_PB2], g_ctl_level[CTL_PB3]);
+
+    // --- Engage: CTL2 (PB3) asserts mute first, CTL1 (PB2) un-mutes after the
+    //     settle delay. End state: both high. ---
+    footsw_set(1); run_ms(50); footsw_set(0); run_ms(50);
+    CHECK(g_led_level == 1, "mute: engage lights LED");
+    CHECK(g_ctl_level[CTL_PB2] == 1 && g_ctl_level[CTL_PB3] == 1,
+          "mute: engaged steady state both high (PB2=%d PB3=%d)",
+          g_ctl_level[CTL_PB2], g_ctl_level[CTL_PB3]);
+    double mute_engage_ms =
+        (double)(g_ctl_rise_cycle[CTL_PB2] - g_ctl_rise_cycle[CTL_PB3])
+        / (double)CYCLES_PER_MS;
+    printf("  mute window (engage): %.2f ms (design %d ms)\n",
+           mute_engage_ms, CD4053_MUTE_DELAY_MS);
+    CHECK(mute_engage_ms >= (double)CD4053_MUTE_DELAY_MS - 1.0 &&
+          mute_engage_ms <= (double)CD4053_MUTE_DELAY_MS + 2.0,
+          "mute window (engage) %.2f ms not near design %d ms",
+          mute_engage_ms, CD4053_MUTE_DELAY_MS);
+
+    // --- Bypass: CTL1 (PB2) asserts mute first, CTL2 (PB3) un-mutes after the
+    //     settle delay. End state: both low. ---
+    footsw_set(1); run_ms(50); footsw_set(0); run_ms(50);
+    CHECK(g_led_level == 0, "mute: second press bypasses (LED dark)");
+    CHECK(g_ctl_level[CTL_PB2] == 0 && g_ctl_level[CTL_PB3] == 0,
+          "mute: bypass steady state both low (PB2=%d PB3=%d)",
+          g_ctl_level[CTL_PB2], g_ctl_level[CTL_PB3]);
+    double mute_bypass_ms =
+        (double)(g_ctl_fall_cycle[CTL_PB3] - g_ctl_fall_cycle[CTL_PB2])
+        / (double)CYCLES_PER_MS;
+    printf("  mute window (bypass): %.2f ms\n", mute_bypass_ms);
+    CHECK(mute_bypass_ms >= (double)CD4053_MUTE_DELAY_MS - 1.0 &&
+          mute_bypass_ms <= (double)CD4053_MUTE_DELAY_MS + 2.0,
+          "mute window (bypass) %.2f ms not near design %d ms",
+          mute_bypass_ms, CD4053_MUTE_DELAY_MS);
+}
+
+#else // CD4053_SIMPLE (default)
+// Simple CD4053: a single control line (PB2) follows the effect state directly
+// -- high when engaged, low when bypassed, one edge per toggle. PB3 is an
+// unused output parked low and must never move.
+static void test_control_cd4053_simple(void) {
+    if (sim_reset(0) != 0) { g_failures++; return; }
+
+    CHECK(g_ctl_level[CTL_PB2] == 0, "cd4053: bypass -> control low");
+
+    uint32_t before = g_ctl_changes[CTL_PB2];
+    footsw_set(1); run_ms(50); footsw_set(0); run_ms(50);
+    CHECK(g_led_level == 1 && g_ctl_level[CTL_PB2] == 1,
+          "cd4053: engage -> control high tracks LED (PB2=%d LED=%d)",
+          g_ctl_level[CTL_PB2], g_led_level);
+    CHECK((g_ctl_changes[CTL_PB2] - before) == 1,
+          "cd4053: exactly one control edge on engage, got %u",
+          g_ctl_changes[CTL_PB2] - before);
+
+    before = g_ctl_changes[CTL_PB2];
+    footsw_set(1); run_ms(50); footsw_set(0); run_ms(50);
+    CHECK(g_led_level == 0 && g_ctl_level[CTL_PB2] == 0,
+          "cd4053: bypass -> control low tracks LED (PB2=%d LED=%d)",
+          g_ctl_level[CTL_PB2], g_led_level);
+    CHECK((g_ctl_changes[CTL_PB2] - before) == 1,
+          "cd4053: exactly one control edge on bypass, got %u",
+          g_ctl_changes[CTL_PB2] - before);
+
+    CHECK(g_ctl_changes[CTL_PB3] == 0,
+          "cd4053: PB3 is unused and must stay parked low, got %u edges",
+          g_ctl_changes[CTL_PB3]);
+}
+#endif
+
+// Dispatch to the control-output test for the variant this binary was built for.
+static void test_control_output(void) {
+#if defined(TQ2_L2_5V_RELAY)
+    test_control_relay_pulse();
+#elif defined(CD4053_WITH_MUTE)
+    test_control_mute_sequence();
+#else
+    test_control_cd4053_simple();
+#endif
+}
+
 #endif // !TRACE
 
 //////////////////////////////////////////////////////////////////////////////
@@ -1331,17 +1608,24 @@ static int generate_trace(void) {
     avr_vcd_add_signal(&vcd,
         avr_io_getirq(g_avr, AVR_IOCTL_IOPORT_GETIRQ('B'), LED_PIN),
         1, "PB1_LED");
+    // Control outputs (PB2/PB3): variant-specific meaning (CD4053 ctrl, or
+    // CTL1/CTL2, or RESET/SET coils). Traced generically so the same harness
+    // produces a useful waveform for every variant.
     avr_vcd_add_signal(&vcd,
-        avr_io_getirq(g_avr, AVR_IOCTL_IOPORT_GETIRQ('B'), CD4053_PIN),
-        1, "PB2_CD4053");
+        avr_io_getirq(g_avr, AVR_IOCTL_IOPORT_GETIRQ('B'), PB2),
+        1, "PB2_ctrl");
+    avr_vcd_add_signal(&vcd,
+        avr_io_getirq(g_avr, AVR_IOCTL_IOPORT_GETIRQ('B'), PB3),
+        1, "PB3_ctrl");
 
     avr_vcd_start(&vcd);
 
-    // Scenario: idle, press (engage), release, press (bypass), release.
+    // Scenario: idle, press (engage), release, press (bypass), release. Hold
+    // each phase long enough to capture the variant's coil/mute pulse too.
     footsw_set(0); run_ms(30);
-    footsw_set(1); run_ms(40);
+    footsw_set(1); run_ms(40 + CTL_DELAY_MS);
     footsw_set(0); run_ms(40);
-    footsw_set(1); run_ms(40);
+    footsw_set(1); run_ms(40 + CTL_DELAY_MS);
     footsw_set(0); run_ms(40);
 
     avr_vcd_stop(&vcd);
@@ -1402,6 +1686,7 @@ int main(int argc, char **argv) {
     test_power_on_robustness();
     test_clean_press_phase_jitter();
     test_stack_high_water_mark();
+    test_control_output();
 
     if (g_avr) { avr_terminate(g_avr); free(g_avr); }
 
