@@ -374,6 +374,38 @@ show in the following table:
 |===
 
 
+== Resource Utilization
+
+The firmware is deliberately tiny, leaving large headroom on every supported
+part. Flash figures below are reported by `avr-size`; static data is the four
+1-byte global state variables (`effect_state_`, `program_state_`,
+`timer_isr_called_`, `debounce_counter_`); and peak stack is the empirical
+high-water mark measured by the simavr stack-canary test (see Testing and
+Validation above).
+
+.Table Flash Utilization by Variant (measured, `avr-size`)
+|===
+| Part      | Variant | Flash               | of device flash
+
+| ATtiny13a | cd4053  | 470 bytes           | 46% of 1 KB
+| ATtiny13a | relay   | 510 bytes           | 50% of 1 KB
+| ATtiny13a | mute    | 518 bytes           | 51% of 1 KB
+| ATtiny85  | cd4053  | 484 bytes           | 6% of 8 KB
+| ATtiny85  | relay   | 524 bytes           | 6% of 8 KB
+| ATtiny85  | mute    | 532 bytes           | 7% of 8 KB
+|===
+
+SRAM use is dominated by 4 bytes of static data; peak stack measured ≤10 bytes
+across all variants. On the most constrained part — the ATtiny13a, with 64
+bytes of SRAM — that leaves roughly 52 bytes of headroom (about 12 of 64 bytes
+in use). The tinyx5 family has far more of both flash and SRAM (the ATtiny85
+uses ~6% of flash and under 3% of its 512 bytes of SRAM).
+
+This headroom is a deliberate design property: it leaves ample room for future
+features without approaching any resource limit, and it is enforced as a test —
+the stack high-water-mark check fails the build if free SRAM margin drops below
+its floor.
+
 
 == ATTiny13a Program Flow
 
@@ -461,7 +493,8 @@ Diagram 1: Typical Case
 
 Diagram 2: EMI/Noise Rejection Case
 
-It shows the counter climbing to 7, then noise interrupting and the counter falling back, never reaching 8:
+The following diagram shows the noise-rejection case: the counter climbs to 7,
+then noise interrupts and it falls back, never reaching the threshold of 8.
 
    counter:  0  1  2  3  4  5  6  7  6  5  4  3  2  1  0  0  0  0 ...
                                                                  (threshold never reached)
