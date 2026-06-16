@@ -1,6 +1,10 @@
 #ifndef BYPASS_CORE_H__
 #define BYPASS_CORE_H__
 
+#include "bypass_types.h"
+
+#include <stdint.h>
+
 
 //////////////////////////////////////////////////////////////////////////////
 // PROGRAM GLOBALS
@@ -20,6 +24,12 @@ extern volatile uint8_t debounce_counter_;
 // - assumes pin was previously configured as output
 void pin_set_high(uint8_t const pin);
 void pin_set_low(uint8_t const pin);
+
+
+// LED_PIN high = status LED lit
+// LED_PIN low = status LED dark
+void led_pin_set_high(void);
+void led_pin_set_low(void);
 
 
 #endif // BYPASS_CORE_H__

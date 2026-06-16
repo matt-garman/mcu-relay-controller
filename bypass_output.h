@@ -1,6 +1,9 @@
 #ifndef BYPASS_OUTPUT_H__
 #define BYPASS_OUTPUT_H__
 
+#include <stdint.h>
+
+
 // - sets global effect state (ENGAGE/BYPASS)
 // - lights or dims status LED
 // - does implementation-specific audio routing device control (e.g. cd4053

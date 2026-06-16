@@ -2,6 +2,10 @@
 #include "bypass_output.h"
 #include "bypass_output_common.h"
 #include "bypass_output_cd4053_with_mute.h"
+#include "bypass_types.h"
+
+#include <avr/io.h>     // Defines register and bit names
+#include <util/delay.h> // _delay_ms()
 
 
 uint8_t is_sanity_check_failed(void) {

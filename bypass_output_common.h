@@ -1,6 +1,9 @@
 #ifndef BYPASS_OUTPUT_COMMON_H__
 #define BYPASS_OUTPUT_COMMON_H__
 
+#include <avr/io.h>
+
+
 // footswitch and status LED pins are common across all output variants
 #define FOOTSW_PIN (PB0)
 #define LED_PIN    (PB1)

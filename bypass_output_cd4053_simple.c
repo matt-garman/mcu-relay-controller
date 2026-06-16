@@ -1,8 +1,11 @@
-
 #include "bypass_core.h"
 #include "bypass_output.h"
 #include "bypass_output_common.h"
 #include "bypass_output_cd4053_simple.h"
+#include "bypass_types.h"
+
+#include <avr/io.h> // Defines register and bit names
+
 
 // assert critical pin directions hold: LED & CD4053 outputs, footswitch input
 uint8_t is_sanity_check_failed(void) {

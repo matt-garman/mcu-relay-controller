@@ -42,7 +42,6 @@
 
 #include <assert.h>        // For static_assert()
 #include <avr/io.h>        // Defines register and bit names
-#include <util/delay.h>    // _delay_ms()
 #include <avr/wdt.h>       // watchdog timer: wdt_enable(), wdt_reset(), WDTO_* timeouts
 #include <avr/power.h>     // clock_prescale_set(), power_all_disable()
 #include <avr/sleep.h>     // sleep states
@@ -85,8 +84,8 @@ __attribute__((noreturn)) static void force_wdt_reset(void) {
 
 // LED_PIN high = status LED lit
 // LED_PIN low = status LED dark
-static void led_pin_set_high(void) { PORTB |=  (1 << LED_PIN); }
-static void led_pin_set_low(void)  { PORTB &= (uint8_t)~(1 << LED_PIN); }
+void led_pin_set_high(void) { PORTB |=  (1 << LED_PIN); }
+void led_pin_set_low(void)  { PORTB &= (uint8_t)~(1 << LED_PIN); }
 
 
 // - set a GPIO pin high or low
