@@ -1,8 +1,8 @@
 
-# Electric Guitar Effect Engage/Bypass Scheme using ATtiny13a
+= Electric Guitar Effect Engage/Bypass Scheme using ATtiny13a
 
 
-## Why ATTiny13a
+== Why ATTiny13a
 
     - Readily available in SMD and through-hole
     - Low cost
@@ -14,7 +14,7 @@
     - Schmitt trigger GPIO pins
 
 
-## High-Level Functional Description
+== High-Level Functional Description
 
 This ATTiny13a will be used with a physical human-operated
 footswitch (momentary, normally open), and an electric signal
@@ -33,10 +33,10 @@ effect is "engaged", the status LED should be lit, and when the
 effect is in "bypass", the status LED should be dark.
 
 Therefore, the ATTiny13a needs to:
-    - maintain state (engage/bypass)
-    - light or dark the status LED
-    - respond to footswitch presses (including debounce)
-    - control the actual signal switching mechanism (4053)
+    * maintain state (engage/bypass)
+    * light or dark the status LED
+    * respond to footswitch presses (including debounce)
+    * control the actual signal switching mechanism (4053)
 
 At power-on, the circuit should default to the bypass state with the
 LED dark (no state persistence between power cycles).
@@ -46,65 +46,65 @@ on press (not on release).
 
 This sub-circuit should be as robust as possible and assume likely
 adverse conditions:
-    - high temperature (e.g. noon-time Death Valley performance)
-    - EMI/RFI (e.g. cell phones, wifi, fluorescent lighting, AC motors,
+    * high temperature (e.g. noon-time Death Valley performance)
+    * EMI/RFI (e.g. cell phones, wifi, fluorescent lighting, AC motors,
       proximity to radio station, etc)
 
-## Reliability Goals
-    - Reference-quality
-    - World-class touring musician grade
-    - Suitable for use by established market-leading manufacturers
+== Reliability Goals
+    * Reference-quality
+    * World-class touring musician grade
+    * Suitable for use by established market-leading manufacturers
       (e.g. Boss, Ibanez)
-    - Under assumed operating conditions, one physical press must
+    * Under assumed operating conditions, one physical press must
       generate exactly one state change
-    - One physical release must generate zero state changes
-    - Resiliency against EMI/RFI-induced false state changes in
+    * One physical release must generate zero state changes
+    * Resiliency against EMI/RFI-induced false state changes in
       expected operating environments
-    - Switch bounce must never generate multiple state changes
-    - Holding the switch down for several seconds must not generate additional
+    * Switch bounce must never generate multiple state changes
+    * Holding the switch down for several seconds must not generate additional
       state changes
-    - Fast, repeated taps should always be recognized (see Caveats
+    * Fast, repeated taps should always be recognized (see Caveats
       and Limitations)
-    - Latency should feel instantaneous as possible given switch
+    * Latency should feel instantaneous as possible given switch
       age/quality and environmental noise: <10ms under ideal
       circumstances
-    - Behavior must be deterministic and analyzable
+    * Behavior must be deterministic and analyzable
 
 
-## Caveats and Limitations
-    - The footswitch polling loop is based on a 1ms timer, driven by
+== Caveats and Limitations
+    * The footswitch polling loop is based on a 1ms timer, driven by
       the ATTiny13a's builtin oscillator; this oscillator can drift
       +/- 10% (e.g. voltage fluctuations, temperature), which means
       actual sampling is roughly 0.9-1.1ms.  The algorithm still
       holds, and timing variations of this magnitude will not be
       perceptible to the user and are therefore acceptable.
-    - Pop/click suppression is out-of-scope for this design; a
+    * Pop/click suppression is out-of-scope for this design; a
       future revision will incorporate a temporary muting scheme
       during engaged-bypass transitions
-    - The design could be made more battery-friendly by use of a
+    * The design could be made more battery-friendly by use of a
       DEEP_SLEEP state when waiting for a footswitch press; that may
       be considered for a future revision - but the current design
       bias is towards simplicity and verifiability
-    - A mechanically stuck switch results in permanent active-mode
+    * A mechanically stuck switch results in permanent active-mode
       power draw and no recovery; this is by design
-    - "Fast" repeated taps: "fast" generally means at least
+    * "Fast" repeated taps: "fast" generally means at least
       33 milliseconds between presses under ideal conditions; time
       between recognized repeated taps will be longer in noisy
       environments, or when using old switches, etc
-    - The design attempts to be EMI/RFI resilient; however, an
+    * The design attempts to be EMI/RFI resilient; however, an
       old/low-quality/fouled-contact footswitch might be very
       "bouncy"; the design can't distinguish EMI/RFI noise from
       switch bounce.  The tradeoff is that increased noise/bounce
       immunity reduces responsiveness.  Therefore, the firmware
       design assumes the following:
-        - High quality, modern footswitch
-        - Short (<10cm) leads between footswitch and PCB
-        - Footswitch leads are tightly twisted
-        - PCB and footswitch wiring housed in a grounded metal
-          enclosure
+        ** High quality, modern footswitch
+        ** Short (<10cm) leads between footswitch and PCB
+        ** Footswitch leads are tightly twisted
+        ** PCB and footswitch wiring housed in a grounded metal
+           enclosure
 
 
-## Asymmetric Debounce Timing
+== Asymmetric Debounce Timing
 
 The design deliberately uses asymmetric timing for debouncing the
 switch press and release.  The goal is to use a shorter time window
@@ -112,7 +112,7 @@ for press-debounce, so the state change feels instantaneous to the
 user.  The release-debounce, or lock-out period, is longer so as to
 "hide" additional debounce latency from the user.
 
-    - PRESSED_THRESH upper bound (latency constraint):
+    * PRESSED_THRESH upper bound (latency constraint):
       At worst-case clock (+10% RC drift), one tick = 1.111ms. For
       <10ms press latency: PRESSED_THRESH = floor(10 / 1.111) = 9.
       Current value 8 has a 1-tick margin.  Note that changing to 10
@@ -120,34 +120,34 @@ user.  The release-debounce, or lock-out period, is longer so as to
       that a highly bouncy switch, or significant EMI/RFI *will*
       cause the press latency to exceed 10ms.
 
-    - PRESSED_THRESH lower bound (EMI rejection):
-      The RC filter (1k series + 22nF to ground + ~7.5k pullup
+    * PRESSED_THRESH lower bound (EMI rejection):
+      The RC filter (1k series + 22nF to ground + approx. 7.5k pullup
       effective) has a time constant 22nF × (1k || 7.5k) =
-      ~18µs. EMI spikes shorter than a few RC time constants are
+      approx. 18µs. EMI spikes shorter than a few RC time constants are
       attenuated below the Schmitt threshold. The filter provides
-      hardware-level rejection of spikes shorter than ~100µs. The
+      hardware-level rejection of spikes shorter than roughly 100µs. The
       1ms timer tick plus PRESSED_THRESH=8 means a spurious low must
       persist for 8ms (contiguous or accumulating) to register
       roughly 80× the hardware filter's corner.
 
-    - RELEASE_THRESH (minimum lockout before next press):
+    * RELEASE_THRESH (minimum lockout before next press):
       The minimum tap interval is PRESSED_THRESH + RELEASE_THRESH =
       33ms at nominal clock.
 
 
-## GPIO pin assignment
+== GPIO pin assignment
 
-    - NOTE: PB5 serves multiple roles (e.g. physical RESET pin) in
+    * NOTE: PB5 serves multiple roles (e.g. physical RESET pin) in
       ATTiny13a; deliberately not used in this design
-    - PB0: input; footswitch pin, normally held high; normally-open momentary
+    * PB0: input; footswitch pin, normally held high; normally-open momentary
       footswitch pulls low when pressed
-    - PB1: output; to status LED cathode mosfet: high when state is "engaged"
+    * PB1: output; to status LED cathode mosfet: high when state is "engaged"
       (LED is lit), low when state is "bypass" (LED is dark)
-    - PB2: output, used to control 4053 electrical switch
-    - PB1, PB2 will have 100k pulldown resistors
+    * PB2: output, used to control 4053 electrical switch
+    * PB1, PB2 will have 100k pulldown resistors
 
 
-## Footswitch-GPIO wiring
+== Footswitch-GPIO wiring
 
 The GPIO pin tied to the footswitch (normally high) will have some
 hardware-level EMI/RFI protections and also aid with debounce.
@@ -155,25 +155,26 @@ Wiring is as follows:
 
 Footswitch lead 1: GND
 Footswitch lead 2 ("FOOTSW_PIN"):
-    - TVS diode to ground (cathode=signal, anode=GND)
-    - series ferrite bead
-    - series 1k resistor ("a" side to FB, "b" side to "node b")
-    - 22nF capacitor "node b" to ground (close to MCU GPIO pin)
-    - 10k pullup resistor "node b" to VCC
+
+    * TVS diode to ground (cathode=signal, anode=GND)
+    * series ferrite bead
+    * series 1k resistor ("a" side to FB, "b" side to "node b")
+    * 22nF capacitor "node b" to ground (close to MCU GPIO pin)
+    * 10k pullup resistor "node b" to VCC
 
 Wiring diagram:
-```
-                                     VCC(5v)
-                                        |
-                                      [10k]
-                                        |
-FOOTSW_PIN -----+-----[FB]-----[1k]-----+-----GPIO_PIN
-                |                       |
-             [TVS-K]                 [22nF]
-             [TVS-A]                    |
-                |                       |
-               GND                     GND
-```
+....
+                                       VCC(5v)
+                                          |
+                                        [10k]
+                                          |
+  FOOTSW_PIN -----+-----[FB]-----[1k]-----+-----GPIO_PIN
+                  |                       |
+               [TVS-K]                 [22nF]
+               [TVS-A]                    |
+                  |                       |
+                 GND                     GND
+....
 
 Note this wiring is overbuilt for the intended purpose.  All parts
 are recommended for best EMI/RFI resiliency, but for non-adverse
@@ -181,147 +182,157 @@ environmental conditions and/or prioritizing reduced BOM cost and
 PCB space, the TVS diode and ferrite bead can be omitted.
 
 
-## CD4053 Notes
+== CD4053 Notes
 
-    - the newer TMUX4053 switches can be controlled with logic
+    * the newer TMUX4053 switches can be controlled with logic
       levels lower than the voltage supply (e.g. CMOS, TTL)
-    - the older CD4053 needs logic "true" to be the same level as
+    * the older CD4053 needs logic "true" to be the same level as
       the voltage supply
-    - the ATTiny13a will run at 5v, but the 4053 will run at the
+    * the ATTiny13a will run at 5v, but the 4053 will run at the
       effect voltage (9 to 18 volts)
-    - 5v rail derived via LP2950 for through-hole implementation
+    * 5v rail derived via LP2950 for through-hole implementation
       or AP7375 for SMD implementation
-    - 5v rail only for MCU and footswitch - everything else
+    * 5v rail only for MCU and footswitch - everything else
       (including status LED) is powered from the parent 9-18v rail
-    - therefore, the 4053 control pins will be held to effect
+    * therefore, the 4053 control pins will be held to effect
       voltage via pullup resistor; the control pins will be pulled
       low (to ground) via a mosfet; that mosfet's gate will be
       controlled by ATTiny13a PB2
-    - therefore, the PB2 pin value is actually inverted at the
+    * therefore, the PB2 pin value is actually inverted at the
       CD4053:
-        - PB2 high -> mosfet on -> 4053 control pins low
-        - PB2 low -> mosfet off -> 4053 control pins high
-    - the 4053 is wired such that:
-        - control pins high = bypass
-        - control pins low = engaged
-    - assume 2n7000/2n7002 mosfets for CD4053 control and LED
+        ** PB2 high -> mosfet on -> 4053 control pins low
+        ** PB2 low -> mosfet off -> 4053 control pins high
+    * the 4053 is wired such that:
+        ** control pins high = bypass
+        ** control pins low = engaged
+    * assume 2n7000/2n7002 mosfets for CD4053 control and LED
       control
 
-## CD4053/TMUX4053 Wiring
 
-### CD4053 Overview
+== CD4053/TMUX4053 Wiring
 
-    - PIN 1 : B1
-    - PIN 2 : B0
-    - PIN 3 : C1
-    - PIN 4 : CCOM
-    - PIN 5 : C0
-    - PIN 6 : INH (inhibit, not used, tied to GND)
-    - PIN 7 : VEE (negative supply: for single supply, tied to GND)
-    - PIN 8 : GND
-    - PIN 9 : CSEL
-    - PIN 10: BSEL
-    - PIN 11: ASEL
-    - PIN 12: A0
-    - PIN 13: A1
-    - PIN 14: ACOM
-    - PIN 15: BCOM
-    - PIN 16: VDD
+=== CD4053 Overview
+
+    * PIN 1 : B1
+    * PIN 2 : B0
+    * PIN 3 : C1
+    * PIN 4 : CCOM
+    * PIN 5 : C0
+    * PIN 6 : INH (inhibit, not used, tied to GND)
+    * PIN 7 : VEE (negative supply: for single supply, tied to GND)
+    * PIN 8 : GND
+    * PIN 9 : CSEL
+    * PIN 10: BSEL
+    * PIN 11: ASEL
+    * PIN 12: A0
+    * PIN 13: A1
+    * PIN 14: ACOM
+    * PIN 15: BCOM
+    * PIN 16: VDD
 
 xSEL LOW  -> x0 active (xCOM tied to x0)
 xSEL HIGH -> x1 active (xCOM tied to x1)
 
+=== Circuit Net Naming Conventions
 
-== Circuit Net Naming Conventions
+    * JOU = output jack, i.e. final output signal to next device/amp
+    * DRY = buffered input signal
+    * FXO = effect output/return
+    * FXN = effect input/send
 
-    JOU = output jack, i.e. final output signal to next device/amp
-    DRY = buffered input signal
-    FXO = effect output/return
-    FXN = effect input/send
+=== CD4053 vs TMUX4053 Notes
 
-
-== CD4053 vs TMUX4053 Notes
-
-    - CD4053 available in through-hole and surface-mount
-    - TMUX4053 surface-mount only
-    - TMUX4053 can use lower-voltage logic true (e.g. CMOS, TTL)
-    - CD4053 needs logic true to be at VDD
-    - VDD will be effect volate 9-18v
-    - Control from MCU running at 5v: can't be used directly on
+    * CD4053 available in through-hole and surface-mount
+    * TMUX4053 surface-mount only
+    * TMUX4053 can use lower-voltage logic true (e.g. CMOS, TTL)
+    * CD4053 needs logic true to be at VDD
+    * VDD will be effect volate 9-18v
+    * Control from MCU running at 5v: can't be used directly on
       CD4053
-    - Control switches held high via pullup resistor to VDD
-    - Control switches gated to GND via mosfet
-    - MCU signaling to GND-gate mosfets
-    - MCU high -> Switch signal low, MCU low -> Switch sigal high
-    - Mosfet scheme not needed for TMUX4053, but retained for
+    * Control switches held high via pullup resistor to VDD
+    * Control switches gated to GND via mosfet
+    * MCU signaling to GND-gate mosfets
+    * MCU high -> Switch signal low, MCU low -> Switch sigal high
+    * Mosfet scheme not needed for TMUX4053, but retained for
       schematic/wiring consistency across parts
 
+=== Simple Scheme: No Explicit Muting
 
-== Initial Scheme - No Muting
+ Switch A not used
 
-Switch A not used
+ BCOM = JOU
+ B0 = FXO
+ B1 = C1
 
-BCOM = JOU
-B0 = FXO
-B1 = C1
+ CCOM = DRY
+ C0 = FXN
+ C1 = B1
 
-CCOM = DRY
-C0 = FXN
-C1 = B1
-
-CTL = single control bus for both BSEL and CSEL
-MCU = MCU signal to mosfet gate
-
-Truth Table
-
-| MCU | CTL | BCOM | JOU | CCOM | DRY | FXN      | FXO      | program state |
-| --- | --- | ---  | --- | ---  | --- | ---      | ---      | ---           |
-| 0   | 1   | B1   | DRY | C1   | JOU | floating | floating | BYPASS        |
-| 1   | 0   | B0   | FXO | C0   | FXN | DRY      | JOU      | ENGAGE        |
+ CTL = single control bus for both BSEL and CSEL
+ MCU = MCU signal to mosfet gate
 
 
-== Improved Scheme With Muting
+.Table Simple Scheme: Truth Table
+|===
+| MCU | CTL | BCOM | JOU | CCOM | DRY | FXN      | FXO      | program state 
 
-ACOM = FXN
-A0 = DRY
-A1 = GND
+| 0   | 1   | B1   | DRY | C1   | JOU | floating | floating | BYPASS
 
-BCOM = GND
-B0 = floating
-B1 = FXO
-
-CCOM = JOU
-C0 = FXO
-C1 = DRY
-
-CTL1 = combined control bus for ASEL and BSEL
-CTL2 = control bus for CSEL
-
-MCU1 = MCU signal to mosfet gate for CTL1
-MCU2 = MCU signal to msofet gate for CTL2
+| 1   | 0   | B0   | FXO | C0   | FXN | DRY      | JOU      | ENGAGE
+|===
 
 
-| MCU1 | CTL1 | MCU2 | CTL2 | ACOM | BCOM | CCOM | DRY      | FXN | FXO | JOU | program state |
-| ---  | ---  | ---  | ---  | ---  | ---  | ---  | ---      | --- | --- | --- | ---           |
-| 0    | 1    | 0    | 1    | A1   | B1   | C1   | JOU      | GND | GND | DRY | BYPASS        |
-| 0    | 1    | 1    | 0    | A1   | B1   | C0   | floating | GND | GND | FXO | MUTE          |
-| 1    | 0    | 0    | 1    | A0   | B0   | C1   | FXN+JOU  | DRY |     | DRY | *invalid*     |
-| 1    | 0    | 1    | 0    | A0   | B0   | C0   | FXN      | DRY | FXO | FXO | ENGAGE        |
+=== Improved Scheme With Muting
+
+ ACOM = FXN
+ A0 = DRY
+ A1 = GND
+
+ BCOM = GND
+ B0 = floating
+ B1 = FXO
+
+ CCOM = JOU
+ C0 = FXO
+ C1 = DRY
+
+ CTL1 = combined control bus for ASEL and BSEL
+ CTL2 = control bus for CSEL
+
+ MCU1 = MCU signal to mosfet gate for CTL1
+ MCU2 = MCU signal to msofet gate for CTL2
 
 
-| STATE  | MCU1, MCU2 |
-| ---    | ---        |
-| BYPASS | 0, 0       |
-| MUTE   | 0, 1       |
-| ENGAGE | 1, 1       |
-| MUTE   | 0, 1       |
-| BYPASS | 0, 0       |
+.Table Improved Scheme With Muting: Truth Table
+|===
+| MCU1 | CTL1 | MCU2 | CTL2 | ACOM | BCOM | CCOM | DRY      | FXN | FXO | JOU | program state
 
-## Toolchain
-    - avr tools: avr-gcc, avr-libc, avrdude toolchain
-    - no Arduino
+| 0    | 1    | 0    | 1    | A1   | B1   | C1   | JOU      | GND | GND | DRY | BYPASS
+| 0    | 1    | 1    | 0    | A1   | B1   | C0   | floating | GND | GND | FXO | MUTE
+| 1    | 0    | 0    | 1    | A0   | B0   | C1   | FXN+JOU  | DRY |     | DRY | *invalid*
+| 1    | 0    | 1    | 0    | A0   | B0   | C0   | FXN      | DRY | FXO | FXO | ENGAGE
+|===
 
-## Compilation Flags
+
+.Table Improved Scheme With Muting: MCU CTL Pin States Across Changes
+|===
+| STATE  | MCU1, MCU2
+
+| BYPASS | 0, 0
+| MUTE   | 0, 1
+| ENGAGE | 1, 1
+| MUTE   | 0, 1
+| BYPASS | 0, 0
+|===
+
+
+== Toolchain
+
+    * avr tools: avr-gcc, avr-libc, avrdude toolchain
+    * no Arduino
+
+== Compilation Flags
+
     -fshort-enums // so that typedef'ed enums below are 8-bit ints
     -funsigned-char
     -ffunction-sections
@@ -332,14 +343,17 @@ MCU2 = MCU signal to msofet gate for CTL2
     -Wextra
 
 
-## Testing and Validation
+== Testing and Validation
 
 This project features and extensive testing, validation and
 simulation suite.  Specific tests verify specific requirements, as
 show in the following table:
 
+
+.Table Requirements vs Test/Validation Case
+|===
 | Requirement                          | Test(s) that verify it                         │
-|---                                   | ---
+
 | One press → exactly one state change | model_check I2/I5; test_single_clean_press; test_lockstep_cosim
 | Release → zero state changes         | model_check I3; test_single_clean_press; test_two_presses_round_trip
 | Switch bounce → no extra changes     | test_bouncy_press; test_fuzz_extreme_bounce; test_extreme_bounce (sim)
@@ -349,18 +363,19 @@ show in the following table:
 | Latency <10ms                        | test_clean_press_latency; test_oscillator_drift_tolerance
 | Deterministic/analyzable             | model_check exhaustive BFS; test_symbolic exhaustive enumeration
 | Power-on → BYPASS                    | test_power_on_default; test_power_on_robustness
+|===
 
 
 
-## ATTiny13a Program Flow
+== ATTiny13a Program Flow
 
-### Functional Description
+=== Functional Description
 
 Define two program states: PRESS_DEBOUNCE_WAIT, RELEASE_DEBOUNCE_WAIT
 Define two effect-circuit states: ENGAGED, BYPASS
 Define constants (see "Asymmetric Debounce Timing" above for rationale)
-    - RELEASE_THRESH = 25
-    - PRESSED_THRESH = 8
+    * RELEASE_THRESH = 25
+    * PRESSED_THRESH = 8
 
 The core mechanism is a saturating integrator: a counter that
 increments by one per millisecond when the footswitch reads closed,
@@ -396,25 +411,27 @@ device to the default state (bypass, status LED dark) in the event
 of unexpected error, bit flip, etc.
 
 
-### State Machine
+=== State Machine
 
 Saturating integrator (ISR, every 1ms, runs in both states):
   if footswitch pin low  (switch closed):  if counter < RELEASE_THRESH: counter++
   if footswitch pin high (switch open):    if counter > 0             : counter--
 
-State machine (main loop, evaluated after each ISR wake):
-
-| Current State        | Condition                   | Effect action           | Next State            |
-| ---                  | ---                         | ---                     | ---                   |
-| PRESS_DEBOUNCE_WAIT  | counter >= PRESSED_THRESH   | Toggle engaged/bypass;  | RELEASE_DEBOUNCE_WAIT |
-|                      |                             | counter = RELEASE_THRESH|                       |
-| PRESS_DEBOUNCE_WAIT  | counter <  PRESSED_THRESH   | (none)                  | PRESS_DEBOUNCE_WAIT   |
-| RELEASE_DEBOUNCE_WAIT| counter == 0                | (none)                  | PRESS_DEBOUNCE_WAIT   |
-| RELEASE_DEBOUNCE_WAIT| counter >  0                | (none)                  | RELEASE_DEBOUNCE_WAIT |
 
 
+.Table Program state machine (main loop, evaluated after each ISR wake)
+|===
+| Current State        | Condition                   | Effect action                                    | Next State
 
-### Timing Diagram
+| PRESS_DEBOUNCE_WAIT  | counter >= PRESSED_THRESH   | Toggle engaged/bypass; counter = RELEASE_THRESH  | RELEASE_DEBOUNCE_WAIT
+| PRESS_DEBOUNCE_WAIT  | counter <  PRESSED_THRESH   | (none)                                           | PRESS_DEBOUNCE_WAIT
+| RELEASE_DEBOUNCE_WAIT| counter == 0                | (none)                                           | PRESS_DEBOUNCE_WAIT
+| RELEASE_DEBOUNCE_WAIT| counter >  0                | (none)                                           | RELEASE_DEBOUNCE_WAIT
+|===
+
+
+
+=== Timing Diagram
 
 Diagram 1: Typical Case
 
