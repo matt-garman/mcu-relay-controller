@@ -69,14 +69,18 @@ make test` and commit the new signature.
 
 == Version pinning strategy
 
-  Exact versions above were the latest Ubuntu 24.04 LTS packages at the time
-  of initial commit.  Upgrading minor versions of avr-gcc or avr-libc is
-  generally safe.  If avr-gcc major version changes, re-verify with
-  `make test` and inspect the generated assembly for the ISR to confirm
-  the saturating integrator still compiles to the expected atomic read-
-  modify-write pattern (no multi-byte intermediates).
+Exact versions above were the latest Ubuntu 24.04 LTS packages at the time
+of initial commit.  Upgrading minor versions of avr-gcc or avr-libc is
+generally safe.  If avr-gcc major version changes, re-verify with
+`make test` and inspect the generated assembly for the ISR to confirm
+the saturating integrator still compiles to the expected atomic read-
+modify-write pattern (no multi-byte intermediates).
 
-  For CI reproducibility, prefer Ubuntu 24.04 LTS Docker image:
+For CI reproducibility, prefer Ubuntu 24.04 LTS Docker image:
+
+....
     docker run --rm -v $(pwd):/src ubuntu:24.04 bash -c \
       "apt-get install -y gcc-avr avr-libc simavr libsimavr-dev gcc && \
        cd /src/nextgen && make test"
+....
+
