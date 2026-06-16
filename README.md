@@ -18,8 +18,20 @@ The firmware is bundled with an extensive test and validation suite.
 the project's overall goal is to be reference-quality, suitable for
 use in professional, touring-grade effects.
 
-See DESIGN_DOCUMENTATION.md for the complete firmware description
-and design details.
+See the [Design Documentation](DESIGN_DOCUMENTATION.adoc) for the
+complete firmware description and design details.
+
+
+# Circuit-switching Hardware Support
+
+The firmware currently supports circuit-switching via:
+
+    - CD4053 or TMUX4053 electrical analog switches
+    - Panasonic TQ-L2-5v mechanical relay
+
+See the [Design Documentation](DESIGN_DOCUMENTATION.adoc) for the
+control line specifics.  Note that it should be possible to use
+other analog switches (e.g. DG413) or relays (e.g. Kemet EC2-3TNU).
 
 
 # Quickstart
