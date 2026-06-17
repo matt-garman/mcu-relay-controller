@@ -363,7 +363,7 @@ FORCE:
 .PHONY: all all13 clean size readfuses fuses flash program help \
         test test-fast test-long stress \
         test-host test-sim test-sim-secondary \
-        test-model-check test-fault-inject test-fuses test-symbolic test-mutation \
+        test-model-check test-fault-inject test-fuses test-symbolic test-cbmc test-mutation \
         analyze analyze-tidy analyze-cppcheck analyze-deep \
         trace coverage coverage-check coverage-clean
 
@@ -502,7 +502,7 @@ $(foreach n,$(TINYX5),$(eval $(call MCU_X5_FLASH_TARGETS,$(n))))
 # the fuse-byte check, the fault-injection sim tests, both simavr firmware
 # suites, and enforces a coverage floor on the model. Designed to finish in
 # ~1 minute for quick edit/build/test loops and CI.
-test: analyze test-host test-model-check test-symbolic test-fuses test-fault-inject test-sim test-sim-secondary coverage-check
+test: analyze test-host test-model-check test-symbolic test-cbmc test-fuses test-fault-inject test-sim test-sim-secondary coverage-check
 	@echo "=== all fast pre-hardware tests passed ==="
 
 # Explicit alias for the fast suite (same as `make test`).
@@ -513,7 +513,7 @@ test-fast: test
 # overrides). Use before tagging a release or signing off for hardware.
 test-long: HOST_DEFS = $(FULL_HOST_DEFS)
 test-long: SIM_DEFS  = $(FULL_SIM_DEFS)
-test-long: clean-tests analyze test-host test-model-check test-symbolic test-fuses test-fault-inject test-sim test-sim-secondary test-mutation coverage-check
+test-long: clean-tests analyze test-host test-model-check test-symbolic test-cbmc test-fuses test-fault-inject test-sim test-sim-secondary test-mutation coverage-check
 	@echo "=== all FULL (exhaustive) pre-hardware tests passed ==="
 
 # Friendly alias for the exhaustive suite (same as `make test-long`).
@@ -584,6 +584,50 @@ test-symbolic-klee:
 	else \
 		echo "KLEE or its clang not installed; the exhaustive 'test-symbolic' target"; \
 		echo "covers the same input domain. Install klee to enable SMT-backed proof."; \
+	fi
+
+# Optional: CBMC bounded-model-checking of the REAL pure core (bypass_pure.c).
+# A third, independent proof engine (SAT/SMT) for the same safety + liveness
+# invariants, run on the actual firmware functions rather than a re-model -- plus
+# CBMC's automatic instrumentation proving the debounce path is free of integer
+# overflow / out-of-range conversion / out-of-bounds undefined behaviour. See
+# test/test_cbmc.c. Only runs if cbmc is installed; otherwise the exhaustive
+# test-model-check / test-symbolic targets already cover the same properties.
+.PHONY: test-cbmc
+CBMC        ?= cbmc
+# bypass_pure.c includes the AVR-targeted bypass_config.h directly; supply the
+# same minimal target macros the host shim provides (F_CPU + the PBx pin numbers)
+# so it parses natively, exactly as PURE_HOST_CFLAGS does for the other tests.
+CBMC_DEFS   = -DF_CPU=1200000UL -DPB0=0 -DPB1=1 -DPB2=2
+# Turn on the full automatic-property instrumentation: any UB on the debounce
+# path becomes a proof obligation, not a silent assumption.
+CBMC_CHECKS = --bounds-check --pointer-check --div-by-zero-check \
+              --signed-overflow-check --unsigned-overflow-check \
+              --conversion-check --undefined-shift-check
+# Straight-line proofs (no loops) and the two bounded-liveness proofs (loops
+# fully unrolled at --unwind 50, > every harness's fixed horizon; the unwinding
+# assertion proves the bound is real, not assumed). Matches TODO.md's
+# `cbmc --unwind 50` on the debounce path.
+CBMC_PROOFS      = prove_integrate prove_debounce_step prove_corrupt_state_faults \
+                   prove_init_context prove_step_transition
+CBMC_PROOFS_LOOP = prove_press_liveness prove_release_liveness
+test-cbmc:
+	@if command -v $(CBMC) >/dev/null 2>&1; then \
+		for p in $(CBMC_PROOFS); do \
+			echo "cbmc: $$p"; \
+			$(CBMC) test/test_cbmc.c $(PURE_HOST_SRC) -Itest $(CBMC_DEFS) \
+				--function $$p $(CBMC_CHECKS) || exit 1; \
+		done; \
+		for p in $(CBMC_PROOFS_LOOP); do \
+			echo "cbmc: $$p (--unwind 50)"; \
+			$(CBMC) test/test_cbmc.c $(PURE_HOST_SRC) -Itest $(CBMC_DEFS) \
+				--function $$p --unwind 50 --unwinding-assertions $(CBMC_CHECKS) || exit 1; \
+		done; \
+		echo "=== CBMC: all debounce-core proofs SUCCESSFUL ==="; \
+	else \
+		echo "cbmc not installed; the exhaustive 'test-model-check' and 'test-symbolic'"; \
+		echo "targets cover the same properties. Install cbmc (apt-get install cbmc) to"; \
+		echo "enable SAT/SMT proof of the real bypass_pure.c source."; \
 	fi
 
 # Fuse-byte verification: decode the EXACT lfuse/hfuse bytes this Makefile will
@@ -886,6 +930,7 @@ help:
 	@echo "  test-model-check exhaustive state-space proof of invariants"
 	@echo "  test-symbolic   exhaustive single-step property proof of step()"
 	@echo "  test-symbolic-klee  same properties under KLEE (if installed)"
+	@echo "  test-cbmc       CBMC SAT/SMT proof of the real bypass_pure.c (if installed)"
 	@echo "  test-fuses      decode + verify the design fuse bytes (t13a + tinyx5)"
 	@echo "  test-sim        real firmware in simavr, all variants (ATtiny13a)"
 	@echo "  test-sim-t85 / test-sim-t45  all variants on that tinyx5 chip"

@@ -38,6 +38,7 @@ jobs:
   # Gating job: the full fast suite. This is the "build passing" badge.
   # `make test` = analyze (clang-tidy + cppcheck + clang-analyzer + MISRA)
   #             + host/model-check/symbolic/fuse tests
+  #             + CBMC SAT/SMT proof of the real bypass_pure.c core
   #             + simavr functional + fault-injection across all variants,
   #               ATtiny13a and tinyx5
   #             + golden-model coverage gate.
@@ -54,7 +55,7 @@ jobs:
           sudo apt-get install -y \
             make gcc-avr avr-libc \
             simavr libsimavr-dev libelf-dev \
-            clang clang-tidy cppcheck
+            clang clang-tidy cppcheck cbmc
 
       - name: Record toolchain versions
         run: |
@@ -63,6 +64,7 @@ jobs:
           echo "== clang =="       && clang --version | head -1
           echo "== clang-tidy ==" && clang-tidy --version | head -2 | tail -1
           echo "== cppcheck =="    && cppcheck --version
+          echo "== cbmc =="        && cbmc --version
           echo "== simavr =="      && (simavr --version 2>&1 | head -1 || true)
           echo "== python3 =="     && python3 --version
 
@@ -135,7 +137,7 @@ jobs:
           sudo apt-get install -y \
             make gcc-avr avr-libc \
             simavr libsimavr-dev libelf-dev \
-            clang clang-tidy cppcheck
+            clang clang-tidy cppcheck cbmc
 
       - name: Exhaustive + mutation suite
         run: make test-long
