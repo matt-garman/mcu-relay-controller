@@ -84,6 +84,44 @@ differentiator; CBMC ships as a Debian package.
 `test-symbolic-klee` target; a CI job (klee/klee Docker image) would prove the
 symbolic path is actually exercised, not merely compilable.
 
+**tinyAVR 2-Series (ATtiny202) support.** The ATtiny202 is the natural
+next-generation successor to the ATtiny13a: 8-pin SOT-23 or DFN-8, 2 KB flash,
+256 B SRAM, capable at 3.3 V/5 V. However it is based on the AVR8X architecture
+(tinyAVR 2-Series), a complete peripheral redesign — the ISA is
+backward-compatible but virtually every register differs: GPIO is
+`PORTA.DIR`/`PORTA.OUT`/`PORTA.IN` instead of `DDRB`/`PORTB`/`PINB`; the timer
+is TCA0/TCB0 (different ISR vectors, different CTC setup); the WDT uses
+`WDT.CTRLA`; the clock prescaler is `CLKCTRL.MCLKCTRLB`; sleep is
+`SLPCTRL.CTRLA`. Programming uses UPDI (not ISP/SPI), requiring a different
+avrdude programmer. Fuse bytes are a completely different layout
+(`FUSE.WDTCFG`, `FUSE.BODCFG`, etc.).
+
+The algorithm (`bypass_pure.c`) and all host-side tests are already fully
+portable. The output abstraction (`bypass_hw_iface.h`) is partially complete —
+effect state switching is already behind the interface — but the following
+remain in `bypass_core.c` as classic-AVR code not yet abstracted: timer setup
+and ISR vector, WDT arm/reset/clear, clock prescaler, ADC/analog-comparator
+disable, power gating, sleep, interrupt controller setup, and footswitch pin
+reading. The output drivers also use `DDRB` directly in `hw_init_ddrb_setup()`
+and `hw_is_sanity_check_failed()`.
+
+The clean implementation path is: (1) extend `bypass_hw_iface.h` with
+primitives for footswitch read, pin direction, WDT reset, idle sleep, and MCU
+init; (2) extract the classic-AVR implementations of those into a new
+`bypass_mcu_attiny13a.c` (separating the currently monolithic `bypass_core.c`);
+(3) update the output drivers to call `hw_pin_set_output(pin)` instead of
+writing `DDRB` directly; (4) write `bypass_mcu_attiny202.c` implementing the
+same interface with AVR8X registers; (5) add `attiny202` to the Makefile
+(trivial given the existing template structure); (6) add ATtiny202 fuse config
+and extend `test_fuses.c`.
+
+The significant open gap is **simavr**: its AVR8X/tinyAVR-2-Series support is
+limited to nonexistent, so the fault-injection and lock-step co-simulation tests
+cannot automatically extend to ATtiny202. Options are: accept that the ATtiny202
+build is validated by static analysis + CBMC + model check + real hardware (no
+simulation layer); or evaluate QEMU's AVR plugin, which has a better AVR8X
+trajectory.
+
 ---
 
 ## Tier 4 — out of scope for firmware (name only)
@@ -110,4 +148,5 @@ left to the implementer" is itself evidence of thoroughness.
 | Hardware-validation procedure doc            | 3    | 2–3 h     | High — primary-part WDT gap     |
 | CBMC formal analysis                         | 3    | 4–8 h     | Platinum-level credibility      |
 | KLEE in CI                                   | 3    | 2 h       | Nice-to-have                    |
+| tinyAVR 2-Series (ATtiny202) support         | 3    | 2–4 days  | Nice-to-have; simavr gap        |
 | Manufacturing artifacts (name as scope)      | 4    | —         | Completeness signal             |
