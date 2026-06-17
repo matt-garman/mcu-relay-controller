@@ -43,11 +43,11 @@ MUTATIONS=(
 "bypass_core.c	s@++debounce_counter_@--debounce_counter_@	test-sim-cd4053	ISR integrator: increment-on-press becomes decrement (counter never rises -> never toggles)"
 "bypass_core.c	s@debounce_counter_ >= PRESSED_THRESH@debounce_counter_ > PRESSED_THRESH@	test-sim-cd4053	press threshold off-by-one (>= becomes >); lock-step must catch the 1-tick divergence"
 "bypass_core.c	s@PORTB |=  (1 << LED_PIN)@PORTB \&= (uint8_t)~(1 << LED_PIN)@	test-sim-cd4053	set_engaged LED output inverted (lights become dark)"
-"bypass_config.h	s@#define PRESSED_THRESH (8)@#define PRESSED_THRESH (4)@	test-sim-cd4053	press threshold shortened 8->4 (timing/noise-count regression)"
-"bypass_config.h	s@#define RELEASE_THRESH (25)@#define RELEASE_THRESH (15)@	test-sim-cd4053	release lock-out shortened 25->15 (noise-count regression)"
+"bypass_config.h	s@#define PRESSED_THRESH (8U)@#define PRESSED_THRESH (4U)@	test-sim-cd4053	press threshold shortened 8->4 (timing/noise-count regression)"
+"bypass_config.h	s@#define RELEASE_THRESH (25U)@#define RELEASE_THRESH (15U)@	test-sim-cd4053	release lock-out shortened 25->15 (noise-count regression)"
 # --- ISR bounds guards (bypass_core.c) -----------------------------------------
 "bypass_core.c	s@if (debounce_counter_ < RELEASE_THRESH) { ++debounce_counter_; }@++debounce_counter_;@	test-sim-cd4053	ISR increment: remove saturation guard (counter wraps from 255->0 after 256 sustained ticks)"
-"bypass_core.c	s@if (debounce_counter_ > 0) { --debounce_counter_; }@--debounce_counter_;@	test-sim-cd4053	ISR decrement: remove underflow guard (counter wraps 0->255 on release; lock-step catches divergence)"
+"bypass_core.c	s@if (debounce_counter_ > 0U) { --debounce_counter_; }@--debounce_counter_;@	test-sim-cd4053	ISR decrement: remove underflow guard (counter wraps 0->255 on release; lock-step catches divergence)"
 # --- lockout mechanism (bypass_core.c) -----------------------------------------
 "bypass_core.c	s@debounce_counter_ = RELEASE_THRESH;@debounce_counter_ = 0;@g	test-sim-cd4053	toggle lockout: counter reset to 0 instead of RELEASE_THRESH (immediate re-arm, no hold lockout)"
 "bypass_core.c	s@program_state_ = RELEASE_DEBOUNCE_WAIT;@program_state_ = PRESS_DEBOUNCE_WAIT;@g	test-sim-cd4053	toggle lockout: stays in PRESS_DEBOUNCE_WAIT after toggle (counter=25 >= 8 -> immediate re-toggle cascade)"
