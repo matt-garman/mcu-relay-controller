@@ -100,6 +100,38 @@ adverse conditions:
            enclosure
 
 
+== Failsafe Mechanisms
+
+The firmware takes advantage of two microcontroller features in
+order to fail gracefully in the face of extraordinary circumstances:
+
+    * Brownout detection (BOD), essentially low voltage detection.
+      The hardware design assumes an LP2950 or AP7375 regulator to
+      provide 5v to the MCU from the parent circuit's 9-18v supply.
+      ATtiny13 and ATtiny85 provide various BOD levels via
+      programmed fuses: 4.3v, 2.7v, 1.8v.  This firmware is
+      configured with a 4.3v BOD fuse.  Thus, the design will
+      trigger a reset - forced bypass state - if the voltage drops
+      below this level.  While the MCU itself can run at lower
+      voltages, connected peripherals cannot, particularly a 5v
+      relay coil.  The assumption is that the parent effect is
+      designed for 9-18v operation, so is almost certainly
+      performing out-of-spec at a voltage below 5v.
+
+    * Watchdog timout (WDT): while the program flow has been
+      exhaustively tested/simulated, including formal
+      state-analysis, there is the possibility of extreme
+      environmental factors that could corrupt the runtime state:
+      cosmic rays, extreme EMI/RFI.  Besides explicit runtime sanity
+      checks, the firmware also employs the MCU's WDT functionality:
+      crucial parts of the firmware must regularly "pet the
+      watchdog" (i.e., reset the timeout); if an extreme-outlier
+      situation causes the WDT to timeout, it will force the
+      firmware to reset (force to bypass).  Note that the WDT reset
+      triggers only under highly improbable, "should be impossible"
+      circumstances that are beyond the control of the firmware.
+
+
 == Asymmetric Debounce Timing
 
 The design deliberately uses asymmetric timing for debouncing the
