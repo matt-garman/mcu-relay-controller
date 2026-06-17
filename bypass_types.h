@@ -5,6 +5,8 @@
 #ifndef BYPASS_TYPES_H__
 #define BYPASS_TYPES_H__
 
+#include <stdint.h>
+
 
 // possible high-level states of the debounce/bypass scheme
 typedef enum {
@@ -27,11 +29,20 @@ typedef enum {
 } effect_state_t;
 
 
-// a flag to "multiplex" the WDT across the timer ISR and main() loop
 typedef enum {
-    TIMER_ISR_CALLED = 0,
-    TIMER_ISR_NOT_CALLED,
-} timer_isr_called_t;
+    PIN_STATE_LOW = 0,
+    PIN_STATE_HIGH
+} pin_state_t;
+
+
+// wrap up the three global variables that comprise the runtime context of the
+// debounce-bypass algorithm
+typedef struct {
+    program_state_t program_state;
+    effect_state_t  effect_state;
+    uint8_t         debounce_counter;
+} debounce_context_t;
+
 
 
 

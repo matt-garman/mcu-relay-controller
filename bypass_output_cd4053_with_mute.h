@@ -16,7 +16,7 @@
 #define CD4053_CTL2 (PB3)
 
 // how long to mute the effect before switching between effect/bypass
-#define CD4053_MUTE_DELAY_MS (5)
+#define CD4053_MUTE_DELAY_MS (5U)
 
 
 #endif // BYPASS_OUTPUT_CD4053_WITH_MUTE_H__

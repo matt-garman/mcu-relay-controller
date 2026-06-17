@@ -189,6 +189,10 @@ static uint32_t    g_addr_program_state = 0;
 static uint32_t    g_addr_effect_state  = 0;
 static uint32_t    g_addr_timer_isr     = 0;
 static uint32_t    g_addr_debounce      = 0;
+// Base of the debounce_context_t struct, if the firmware stores its runtime
+// state as a single file-scope context object (`ctx`) instead of three separate
+// globals. The per-field addresses above are then derived from this base.
+static uint32_t    g_addr_ctx           = 0;
 
 // --- test bookkeeping ------------------------------------------------------
 // (unused in the TRACE build, which only generates a VCD waveform)
@@ -347,7 +351,7 @@ static int sim_reset_raw(int footsw_pressed_at_power_on, int settle) {
     // addresses for the data space carry the 0x800000 marker; mask to the raw
     // SRAM index used by g_avr->data[].
     g_addr_program_state = g_addr_effect_state = 0;
-    g_addr_timer_isr = g_addr_debounce = 0;
+    g_addr_timer_isr = g_addr_debounce = g_addr_ctx = 0;
 #if defined(ELF_SYMBOLS) && ELF_SYMBOLS
     for (uint32_t i = 0; i < fw.symbolcount; ++i) {
         const char *name = fw.symbol[i]->symbol;
@@ -356,6 +360,19 @@ static int sim_reset_raw(int footsw_pressed_at_power_on, int settle) {
         else if (strcmp(name, "effect_state_")     == 0) g_addr_effect_state  = a;
         else if (strcmp(name, "timer_isr_called_") == 0) g_addr_timer_isr     = a;
         else if (strcmp(name, "debounce_counter_") == 0) g_addr_debounce      = a;
+        else if (strcmp(name, "ctx")               == 0) g_addr_ctx           = a;
+        else if (strcmp(name, "ctx_")              == 0) g_addr_ctx           = a;
+    }
+    // If the firmware keeps its debounce state in one file-scope context struct
+    // (debounce_context_t ctx) rather than three separate globals, derive the
+    // per-field addresses from the struct base. The firmware builds with
+    // -fshort-enums and static_asserts sizeof()==1 for both enum members, so the
+    // members are tightly packed in declaration order (see bypass_types.h):
+    //   program_state @+0, effect_state @+1, debounce_counter @+2.
+    if (g_addr_ctx != 0) {
+        if (g_addr_program_state == 0) g_addr_program_state = g_addr_ctx + 0u;
+        if (g_addr_effect_state  == 0) g_addr_effect_state  = g_addr_ctx + 1u;
+        if (g_addr_debounce      == 0) g_addr_debounce      = g_addr_ctx + 2u;
     }
 #endif
 

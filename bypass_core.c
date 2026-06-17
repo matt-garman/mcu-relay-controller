@@ -34,11 +34,11 @@
 // Note: useful fuse tool here: https://www.engbedded.com/fusecalc/
 //
 
-#include "bypass_core.h"
 #include "bypass_config.h"
-#include "bypass_output.h"
 #include "bypass_output_common.h"
 #include "bypass_types.h"
+#include "bypass_pure.h"
+#include "bypass_hw_iface.h"
 
 #include <assert.h>        // For static_assert()
 #include <avr/io.h>        // Defines register and bit names
@@ -60,22 +60,27 @@
 #define DEBOUNCE_COUNTER_MAX (255U)
 
 
+//////////////////////////////////////////////////////////////////////////////
+// FILE-SCOPED TYPES
+//////////////////////////////////////////////////////////////////////////////
+
+// a flag to "multiplex" the WDT across the timer ISR and main() loop
+typedef enum {
+    TIMER_ISR_CALLED = 0,
+    TIMER_ISR_NOT_CALLED,
+} timer_isr_called_t;
+
+
 
 //////////////////////////////////////////////////////////////////////////////
 // PROGRAM GLOBALS
 //////////////////////////////////////////////////////////////////////////////
 
-// note: effect_state_ and program_state_ are not touched in the ISRs, so
-// technically don't need to be volatile; however, without volatile, these
-// variables might be local stack copies from memory depending on how the
-// compiler generates code, which would make the the memory-corruption
-// sanity check in the main loop worthless.  So we make them volatile for the
-// purposes of preventing compiler output that would render the sanity check
-// useless.
-volatile effect_state_t effect_state_;
-volatile program_state_t program_state_;
-volatile timer_isr_called_t timer_isr_called_;
-volatile uint8_t debounce_counter_;
+// a single volatile global variable, shared between main() and the timer ISR
+static volatile timer_isr_called_t timer_isr_called_;
+
+// overall debounce context
+static volatile debounce_context_t ctx_;
 
 
 //////////////////////////////////////////////////////////////////////////////
@@ -89,7 +94,7 @@ volatile uint8_t debounce_counter_;
 //
 // IMPORTANT: this function relies on the watchdog being active; calling this
 // without an active WDT will lock up the MCU
-__attribute__((noreturn)) static void force_wdt_reset(void) {
+__attribute__((noreturn)) static void hw_force_wdt_reset(void) {
     cli();
     while (1) {}
 }
@@ -97,45 +102,43 @@ __attribute__((noreturn)) static void force_wdt_reset(void) {
 
 // LED_PIN high = status LED lit
 // LED_PIN low = status LED dark
-void led_pin_set_high(void) { PORTB |=  (1 << LED_PIN); }
-void led_pin_set_low(void)  { PORTB &= (uint8_t)~(1 << LED_PIN); }
+void hw_led_pin_set_high(void) { PORTB |=  (1 << LED_PIN); }
+void hw_led_pin_set_low(void)  { PORTB &= (uint8_t)~(1 << LED_PIN); }
 
 
 // - set a GPIO pin high or low
 // - assumes pin was previously configured as output
-void pin_set_high(uint8_t const pin) { PORTB |=  (uint8_t)(1 << pin); }
-void pin_set_low(uint8_t const pin)  { PORTB &= (uint8_t)~(1 << pin); }
+void hw_pin_set_high(uint8_t const pin) { PORTB |=  (uint8_t)(1 << pin); }
+void hw_pin_set_low(uint8_t const pin)  { PORTB &= (uint8_t)~(1 << pin); }
 
 
 // read FOOTSW_PIN to determine if it's high or low
-// returns: 0 (low) or 1 (high)
-// note: "!!" converts any non-zero value to 1
-static uint8_t digital_read_footswitch_pin(void) { return !!(PINB & (1 << FOOTSW_PIN)); }
+// returns: PIN_STATE_HIGH or PIN_STATE_LOW
+static pin_state_t hw_digital_read_footswitch_pin(void) { 
+    return (0U == (PINB & (1 << FOOTSW_PIN))) ?
+        PIN_STATE_LOW :
+        PIN_STATE_HIGH;
+}
 
 
+// set AVR to IDLE SLEEP mode: halts main() loop, but ISRs continue to run
+static void hw_set_idle_sleep_mode(void) { sleep_mode(); }
+
+
+// Timer ISR
 // Timer0 Compare-Match A interrupt; fires every 1ms (see init()).
-// - read footswitch pin, increment/decrement saturating accordingly
-// - use a saturating integrator to have some tolerance to noisy
-//   switches/environments
 ISR(TIM0_COMPA_vect) {
-
     timer_isr_called_ = TIMER_ISR_CALLED; // used by main() to reset WDT
-
-    // saturating integrator update
-    // footswitch pin zero (low) == switch closed
-    // footswitch pin one (high) == switch open
-    if (0U == digital_read_footswitch_pin()) {
-        if (debounce_counter_ < RELEASE_THRESH) { ++debounce_counter_; }
-    }
-    else { // footswitch pin is high -> switch open
-        if (debounce_counter_ > 0U) { --debounce_counter_; }
-    }
+    ctx_.debounce_counter = debounce_integrate(
+            hw_digital_read_footswitch_pin(),
+            ctx_.debounce_counter);
 }
 
 
 // high-level initialization
 // called at power-on, and after RESET (e.g. due to watchdog timeout)
 static void init(void) {
+
 
     // compile-time sanity checks
     static_assert(RELEASE_THRESH < DEBOUNCE_COUNTER_MAX,           "RELEASE_THRESH >= UINT8_MAX");
@@ -198,7 +201,7 @@ static void init(void) {
     //   FOOTSW_PIN is always an input
     //   All other pins are configured as output, even if unused
     //   Unused pins are driven low
-    init_ddrb_setup();
+    hw_init_ddrb_setup();
 
 
     // enable the input pullup for FOOTSW_PIN
@@ -213,19 +216,12 @@ static void init(void) {
 
 
     // always start in bypass
-    set_bypass_state(); // note: sets effect_state_ = BYPASS
+    hw_set_bypass_state();
 
-    // special case: footswitch pressed during power-on: keep in bypass state,
-    // but use timer + interrupt function to wait for release
-    if (0U == digital_read_footswitch_pin()) {
-        program_state_ = RELEASE_DEBOUNCE_WAIT;
-        debounce_counter_ = RELEASE_THRESH;
-    }
-    // typical startup case: assume switch is not pressed
-    else {
-        program_state_ = PRESS_DEBOUNCE_WAIT;
-        debounce_counter_ = 0U;
-    }
+
+    pin_state_t const pin_state = hw_digital_read_footswitch_pin();
+    ctx_ = debounce_init_context(pin_state);
+
 
     // ISR-main() WDT handshake: let ISR set this to called when timer is
     // activated
@@ -259,24 +255,24 @@ static void init(void) {
 
 // program entry point
 __attribute__((OS_main)) int main(void) {
- 
-     init();
- 
-     while (1) {
- 
-         // basic sanity checks against outlier events (cosmic rays, extreme
-         // EMI)
+
+    init(); // note: initializes ctx_ via debounce_init_context()
+
+    while (1) {
+
+        // basic sanity checks against outlier events (cosmic rays, extreme
+        // EMI)
         // always called, regardless of state
         // force WDT timeout if fail
-        if ( (program_state_ > RELEASE_DEBOUNCE_WAIT) ||
-                (effect_state_ > ENGAGED) ||
+        if ( (ctx_.program_state > RELEASE_DEBOUNCE_WAIT) ||
+                (ctx_.effect_state > ENGAGED) ||
                 (timer_isr_called_ > TIMER_ISR_NOT_CALLED) ||
                 // assert footswitch pullup still enabled
                 ((PORTB & (1 << FOOTSW_PIN)) == 0) ||
                 // config-specific runtime sanity checks
-                is_sanity_check_failed()
+                hw_is_sanity_check_failed()
            ) {
-            force_wdt_reset();
+            hw_force_wdt_reset();
         }
 
         // - the intent is to make sure both main() is running AND
@@ -289,75 +285,39 @@ __attribute__((OS_main)) int main(void) {
         if (TIMER_ISR_CALLED == timer_isr_called_) {
             timer_isr_called_ = TIMER_ISR_NOT_CALLED;
             wdt_reset(); // "pet the dog"
+
+            debounce_step_result_t const res = debounce_step(ctx_);
+
+            ctx_.program_state = res.program_state;
+            ctx_.effect_state = res.effect_state;
+            if (res.reload_lockout)
+            {
+                ctx_.debounce_counter = res.lockout_value;
+            }
+
+            // note: the fault condition is
+            // defense-in-depth/belt-and-suspenders with the sanity checks
+            // above
+            if (res.fault) {
+                hw_force_wdt_reset();
+            }
+            else if (res.toggled) {
+                if (BYPASS == res.effect_state) { hw_set_bypass_state(); }
+                else /*ENGAGED == res.effect_state*/ { hw_set_engaged_state(); }
+            }
+            else {
+                // state advanced this tick with no toggle and no fault: nothing to do
+            }
         }
 
-        switch (program_state_) {
-
-            // NOTE: reading the volatile globals here (e.g.
-            // debounce_counter_) is a potential race condition,
-            // since they are subject to writing in the ISR.
-            // uint8_t operations in AVR are atomic, so we won't
-            // read garbage, but we might read an "old" value in the
-            // precise instant before it is updated.  We could
-            // consider pausing interrupts to read the values into
-            // local copy variables first - but that adds complexity
-            // when the worst-case issue is an extra 1ms delay -
-            // imperceptible and therefore acceptable for this
-            // design
-
-            // waiting for the footswitch to be press-debounced
-            case PRESS_DEBOUNCE_WAIT:
-                {
-                    // check for press-debounced condition
-                    if (debounce_counter_ >= PRESSED_THRESH) {
-                        // note: logical race here, ISR could increment
-                        // debounce_counter_ between above read and below
-                        // write: ok, does not violate design intent
-                        debounce_counter_ = RELEASE_THRESH;
-                        program_state_ = RELEASE_DEBOUNCE_WAIT;
-                        if (BYPASS == effect_state_) { set_engaged_state(); }
-                        else { set_bypass_state(); }
-                    }
-
-                    // Pause until the next 1ms Timer0 compare-match ISR wakes
-                    // the core. Lost-wakeup is impossible on AVR IDLE sleep:
-                    // if the ISR fires in the window between the counter check
-                    // above and the SLEEP instruction, the hardware aborts SLEEP
-                    // immediately and services the interrupt before the next
-                    // instruction (ATtiny13A datasheet §7.3, Sleep Modes).
-                    // No tick is ever missed even without disabling interrupts
-                    // around the check-then-sleep sequence.
-                    else {
-                        sleep_mode();
-                    }
-                }
-                break;
-
-            // waiting for the footswitch to be release-debounced
-            // note: holding the switch closed, or mechanical
-            //       failure (e.g. switch welded shut) causes this
-            //       state to exist indefinitely: this is the design
-            //       intent (software is "helpless", need physical
-            //       human resolution)
-            case RELEASE_DEBOUNCE_WAIT:
-                {
-                    if (0U == debounce_counter_) {
-                        program_state_ = PRESS_DEBOUNCE_WAIT;
-                    }
-                    // Same AVR lost-wakeup guarantee: pending ISR aborts SLEEP
-                    // immediately, no tick missed (ATtiny13A datasheet §7.3).
-                    else {
-                        sleep_mode();
-                    }
-                }
-                break;
-
-            // invalid state, should be impossible (cosmic rays, massive EMI pulse, etc)
-            default:
-                force_wdt_reset();
-                break;
-
-        }
+        // Pause until the next 1ms Timer0 compare-match ISR wakes the core.
+        // Lost-wakeup is impossible on AVR IDLE sleep: if the ISR fires in
+        // the window between clearing timer_isr_called_ and the SLEEP
+        // instruction, the hardware aborts SLEEP immediately and services the
+        // interrupt before the next instruction (ATtiny13A datasheet §7.3,
+        // Sleep Modes). No tick is ever missed even without disabling
+        // interrupts around the check-then-sleep sequence.
+        hw_set_idle_sleep_mode();
     }
 
 }

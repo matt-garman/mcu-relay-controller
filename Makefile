@@ -100,7 +100,7 @@ F_CPU_X5   = 1000000UL
 # driver. A variant is identified by a short name; each maps to the -D selector
 # macro the firmware/tests compile with and to its driver source file. To add a
 # variant: add its short name here and define macro_<name>/src_<name> below.
-CORE_SRC = bypass_core.c
+CORE_SRC = bypass_core.c bypass_pure.c
 VARIANTS = cd4053 mute relay
 
 # variant short name -> firmware -D selector macro
@@ -114,7 +114,7 @@ src_mute   = bypass_output_cd4053_with_mute.c
 src_relay  = bypass_output_tq2_l2_5v_relay.c
 
 # Headers shared by every firmware build; any change rebuilds all variants.
-FW_HEADERS = bypass_config.h bypass_types.h bypass_core.h bypass_output.h \
+FW_HEADERS = bypass_config.h bypass_types.h bypass_hw_iface.h \
              bypass_output_common.h \
              bypass_output_cd4053_simple.h bypass_output_cd4053_with_mute.h \
              bypass_output_tq2_l2_5v_relay.h
@@ -170,6 +170,20 @@ SIM_LIBS     = -lsimavr -lelf
 # Override on the command line to disable (e.g. a toolchain without the runtime):
 #   make test SANITIZE=
 SANITIZE    ?= -fsanitize=undefined,address -fno-sanitize-recover=all
+
+# Host-compiled copy of the firmware's PURE logic (bypass_pure.c), linked into
+# every test that includes model_step.h. Since the convergence, model_step.h's
+# step() delegates to the real debounce_integrate()/debounce_step() instead of a
+# re-implementation, so those tests must link the firmware functions directly --
+# the model can no longer drift from what ships. bypass_pure.c is AVR-targeted
+# but hardware-free; force-including the config shim lets it compile natively so
+# its only firmware dependency (the RELEASE_THRESH/PRESSED_THRESH thresholds in
+# bypass_config.h) resolves on the host. The shim has an include guard, so
+# force-including it into the test TU as well (which already pulls it in via
+# model_step.h) is harmless.
+PURE_HOST_SRC    = bypass_pure.c
+PURE_HOST_DEP    = bypass_pure.c bypass_pure.h bypass_types.h
+PURE_HOST_CFLAGS = -include test/bypass_config_host.h
 
 # --- Test workload sizing ----------------------------------------------------
 # The default `make test` runs a FAST but still-meaningful workload so it
@@ -532,9 +546,10 @@ test/test_logic_host: test/test_logic_host.c test/bypass_config_host.h bypass_co
 test-model-check: test/test_model_check
 	./test/test_model_check
 
-# Build rule for the state-space checker.
-test/test_model_check: test/test_model_check.c test/model_step.h test/bypass_config_host.h bypass_config.h
-	$(HOSTCC) $(HOST_CFLAGS) $(SANITIZE) -Itest $< -o $@
+# Build rule for the state-space checker. Links bypass_pure.c so step() exercises
+# the real firmware functions (see model_step.h / PURE_HOST_SRC).
+test/test_model_check: test/test_model_check.c test/model_step.h test/bypass_config_host.h bypass_config.h $(PURE_HOST_DEP)
+	$(HOSTCC) $(HOST_CFLAGS) $(SANITIZE) $(PURE_HOST_CFLAGS) -Itest $< $(PURE_HOST_SRC) -o $@
 
 # Symbolic / exhaustive single-step property check: proves the per-step
 # transition invariants of step() hold for EVERY (state x input) combination in
@@ -544,9 +559,10 @@ test/test_model_check: test/test_model_check.c test/model_step.h test/bypass_con
 test-symbolic: test/test_symbolic
 	./test/test_symbolic
 
-# Build rule for the symbolic step checker.
-test/test_symbolic: test/test_symbolic.c test/model_step.h test/bypass_config_host.h bypass_config.h
-	$(HOSTCC) $(HOST_CFLAGS) $(SANITIZE) -Itest $< -o $@
+# Build rule for the symbolic step checker. Links bypass_pure.c so step()
+# exercises the real firmware functions (see model_step.h / PURE_HOST_SRC).
+test/test_symbolic: test/test_symbolic.c test/model_step.h test/bypass_config_host.h bypass_config.h $(PURE_HOST_DEP)
+	$(HOSTCC) $(HOST_CFLAGS) $(SANITIZE) $(PURE_HOST_CFLAGS) -Itest $< $(PURE_HOST_SRC) -o $@
 
 # Optional: run the SAME single-step properties under KLEE symbolic execution
 # (only if KLEE is installed). KLEE explores the symbolic input domain and
@@ -601,19 +617,19 @@ test/test_fuses: test/test_fuses.c Makefile
 #   test/test_sim_<v>_t<n>    tinyx5 chip -> run via test-sim-<v>-t<n>
 #   test/test_trace_<v>       VCD waveform builder (-DTRACE, ATtiny13a)
 SIM_DEPS = test/test_sim.c test/model_step.h test/bypass_config_host.h \
-           test/bypass_output_host.h bypass_config.h $(FW_HEADERS)
+           test/bypass_output_host.h bypass_config.h $(FW_HEADERS) $(PURE_HOST_DEP)
 
 # $(call VARIANT_SIM_T13,variant)
 define VARIANT_SIM_T13
 test/test_sim_$(1): $$(SIM_DEPS) $(FW_BASE)_$(1).elf
-	$$(HOSTCC) $$(SIM_CFLAGS) $$(SIM_DEFS) -D$$(macro_$(1)) -Itest \
+	$$(HOSTCC) $$(SIM_CFLAGS) $$(SIM_DEFS) $$(PURE_HOST_CFLAGS) -D$$(macro_$(1)) -Itest \
 		-DFW_PATH=\"$(FW_BASE)_$(1).elf\" \
-		test/test_sim.c -o $$@ $$(SIM_LIBS)
+		test/test_sim.c $$(PURE_HOST_SRC) -o $$@ $$(SIM_LIBS)
 
 test/test_trace_$(1): $$(SIM_DEPS) $(FW_BASE)_$(1).elf
-	$$(HOSTCC) $$(SIM_CFLAGS) $$(SIM_DEFS) -D$$(macro_$(1)) -DTRACE -Itest \
+	$$(HOSTCC) $$(SIM_CFLAGS) $$(SIM_DEFS) $$(PURE_HOST_CFLAGS) -D$$(macro_$(1)) -DTRACE -Itest \
 		-DFW_PATH=\"$(FW_BASE)_$(1).elf\" \
-		test/test_sim.c -o $$@ $$(SIM_LIBS)
+		test/test_sim.c $$(PURE_HOST_SRC) -o $$@ $$(SIM_LIBS)
 
 .PHONY: test-sim-$(1)
 test-sim-$(1): test/test_sim_$(1)
@@ -625,12 +641,12 @@ $(foreach v,$(VARIANTS),$(eval $(call VARIANT_SIM_T13,$(v))))
 # $(call VARIANT_SIM_X5,variant,chip-number)
 define VARIANT_SIM_X5
 test/test_sim_$(1)_t$(2): $$(SIM_DEPS) $(FW_BASE)_$(1)_t$(2).elf
-	$$(HOSTCC) $$(SIM_CFLAGS) $$(SIM_DEFS) -D$$(macro_$(1)) -Itest \
+	$$(HOSTCC) $$(SIM_CFLAGS) $$(SIM_DEFS) $$(PURE_HOST_CFLAGS) -D$$(macro_$(1)) -Itest \
 		-DFW_PATH=\"$(FW_BASE)_$(1)_t$(2).elf\" \
 		-DMCU_NAME=\"$$(mmcu_$(2))\" \
 		-DF_CPU_HZ=$$(F_CPU_X5) \
 		-DTARGET_TINYX5 \
-		test/test_sim.c -o $$@ $$(SIM_LIBS)
+		test/test_sim.c $$(PURE_HOST_SRC) -o $$@ $$(SIM_LIBS)
 
 .PHONY: test-sim-$(1)-t$(2) test-fault-inject-$(1)-t$(2)
 test-sim-$(1)-t$(2): test/test_sim_$(1)_t$(2)

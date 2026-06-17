@@ -24,6 +24,12 @@ Format notes (enforced by the addon's parser, misra.py loadRuleTexts):
 
 Appendix A Summary of guidelines
 
+Rule 2.3 Advisory
+A project should not contain unused type declarations
+
+Rule 2.4 Advisory
+A project should not contain unused tag declarations
+
 Rule 2.5 Advisory
 A project should not contain unused macro definitions
 
@@ -38,6 +44,9 @@ Function types shall be in prototype form with named parameters
 
 Rule 8.4 Required
 A compatible declaration shall be visible when an object or function with external linkage is defined
+
+Rule 8.7 Advisory
+Functions and objects should not be defined with external linkage if they are referenced in only one translation unit
 
 Rule 8.9 Advisory
 An object should be defined at block scope if its identifier only appears in a single function
@@ -78,8 +87,14 @@ The controlling expression of an if statement or iteration statement shall have 
 Rule 15.5 Advisory
 A function should have a single point of exit at its end
 
+Rule 15.7 Required
+All if / else if constructs shall be terminated with an else statement
+
 Rule 17.7 Required
 The value returned by a function having non-void return type shall be used
+
+Rule 17.8 Advisory
+A function parameter should not be modified
 
 Rule 20.10 Advisory
 The hash and hash-hash preprocessor operators should not be used
