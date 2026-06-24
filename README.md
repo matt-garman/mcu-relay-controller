@@ -19,7 +19,7 @@
 
 ## <a name="status"></a>Status
 
-**Jun 16, 2026** This project is being superceded by [mcu-bypass-firmare](https://github.com/matt-garman/mcu-bypass-firmware).  The new project supports only the ATtiny family of microcontrollers, but has been re-designed from scratch to priortize correctness and robustness.
+**Jun 16, 2026** This project is being superceded by [mcu-bypass-firmare](https://github.com/matt-garman/mcu-bypass-firmware).  The replacement project has been re-designed from scratch to priortize correctness and robustness.  The new project currently supports the AVR Classic family of microcontrollers, with PIC10F32x coming soon.**
 
 
 Jan 23, 2024
