@@ -1,4 +1,11 @@
 
+
+# This Project Has Been Deprecated
+
+**Jun 16, 2026** This project is being superceded by [mcu-bypass-firmare](https://github.com/matt-garman/mcu-bypass-firmware).  The replacement project has been re-designed from scratch to priortize correctness and robustness.  The new project currently supports the AVR Classic family of microcontrollers and PIC10F322.  PIC10F320 support is available in a dedicated project [pic10f320-bypass-firmware](https://github.com/matt-garman/pic10f320-bypass-firmware).
+
+
+
 # README
 
 
@@ -18,9 +25,6 @@
 
 
 ## <a name="status"></a>Status
-
-**Jun 16, 2026** This project is being superceded by [mcu-bypass-firmare](https://github.com/matt-garman/mcu-bypass-firmware).  The replacement project has been re-designed from scratch to priortize correctness and robustness.  The new project currently supports the AVR Classic family of microcontrollers, with PIC10F32x coming soon.**
-
 
 Jan 23, 2024
 - validated v1.1 of PCB (see [PCB Versions](#pcb-versions))
